@@ -1,5 +1,5 @@
 // car_manager.c
-#include "car_manager.h"
+#include "web_control.h"
 #include "motor_control.h"
 #include "wifi_manager.h"
 #include "web_page.h"
@@ -9,7 +9,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include "attitude_control.h"
-static const char *TAG = "CarManager";
+static const char *TAG = "WebCtrl";
 
 // 单摇杆竖屏遥控界面 HTML
 
@@ -118,7 +118,7 @@ static esp_err_t control_page_handler(httpd_req_t *req)
  * @brief 初始化小车遥控管理模块
  *        注册 /control 和 /api/joystick 路由
  */
-void car_manager_init(void)
+void web_control_init(void)
 {
     httpd_handle_t server = wifi_get_http_server();
     if (server == NULL)

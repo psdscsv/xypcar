@@ -46,7 +46,7 @@ extern "C"
      *        例如：增益=0.3，则100%速度对应期望俯仰角30°
      */
     void attitude_set_speed_to_pitch_gain(float gain);
-
+    void attitude_clean_pid(void);
 #ifdef __cplusplus
 }
 #endif

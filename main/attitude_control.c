@@ -27,8 +27,6 @@ static float roll_angle = 0.0f;
 static float pitch_angle = 0.0f;
 
 // 陀螺仪积分用
-static float gyro_roll = 0.0f;
-static float gyro_pitch = 0.0f;
 static uint32_t last_time_ms = 0;
 
 // PID 控制器状态
@@ -94,8 +92,6 @@ void attitude_init(void)
     float ax, ay, az, gx, gy, gz;
     mpu6050_read_all(&ax, &ay, &az, &gx, &gy, &gz);
     accel_to_angles(ax, ay, az, &roll_angle, &pitch_angle);
-    gyro_roll = roll_angle;
-    gyro_pitch = pitch_angle;
     last_time_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
     ESP_LOGI(TAG, "Initial roll=%.2f, pitch=%.2f", roll_angle, pitch_angle);
 }
@@ -123,16 +119,17 @@ static void attitude_update(void)
     float ax, ay, az, gx, gy, gz;
     mpu6050_read_all(&ax, &ay, &az, &gx, &gy, &gz);
 
-    // 陀螺仪积分
-    gyro_roll += gx * dt;
-    gyro_pitch += gy * dt;
-
+    // 加速度计计算角度
     float roll_acc, pitch_acc;
     accel_to_angles(ax, ay, az, &roll_acc, &pitch_acc);
 
+    // 正确积分：以上一时刻滤波角度为基础，加上陀螺仪增量
+    float gyro_roll_new = roll_angle + gx * dt;
+    float gyro_pitch_new = pitch_angle + gy * dt;
+
     // 互补滤波
-    roll_angle = FILTER_ALPHA * gyro_roll + (1.0f - FILTER_ALPHA) * roll_acc;
-    pitch_angle = FILTER_ALPHA * gyro_pitch + (1.0f - FILTER_ALPHA) * pitch_acc;
+    roll_angle = FILTER_ALPHA * gyro_roll_new + (1.0f - FILTER_ALPHA) * roll_acc;
+    pitch_angle = FILTER_ALPHA * gyro_pitch_new + (1.0f - FILTER_ALPHA) * pitch_acc;
 
     // 限幅
     if (roll_angle > MAX_ROLL)
@@ -143,6 +140,8 @@ static void attitude_update(void)
         pitch_angle = MAX_PITCH;
     if (pitch_angle < -MAX_PITCH)
         pitch_angle = -MAX_PITCH;
+
+    // ESP_LOGI(TAG, "Roll=%.2f, Pitch=%.2f", roll_angle, pitch_angle);
 }
 
 void attitude_stabilize(float target_speed, float target_turn,
@@ -220,4 +219,11 @@ void attitude_set_speed_to_pitch_gain(float gain)
     {
         ESP_LOGW(TAG, "Invalid gain %.2f, must be [0,1]", gain);
     }
+}
+void attitude_clean_pid(void)
+{
+    pid_roll.integral = 0.0f;
+    pid_roll.prev_error = 0.0f;
+    pid_pitch.integral = 0.0f;
+    pid_pitch.prev_error = 0.0f;
 }
