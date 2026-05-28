@@ -30,7 +30,23 @@ extern "C"
      */
     void attitude_stabilize(float target_speed, float target_turn,
                             float *left_out, float *right_out);
+
+    /**
+     * @brief 设置滚转轴 PID 比例系数
+     */
     void attitude_set_roll_kp(float kp);
+
+    /**
+     * @brief 设置俯仰轴 PID 比例系数
+     */
+    void attitude_set_pitch_kp(float kp);
+
+    /**
+     * @brief 设置速度指令到期望俯仰角的映射增益（度/100%速度）
+     *        例如：增益=0.3，则100%速度对应期望俯仰角30°
+     */
+    void attitude_set_speed_to_pitch_gain(float gain);
+
 #ifdef __cplusplus
 }
 #endif

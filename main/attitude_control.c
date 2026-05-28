@@ -9,22 +9,22 @@
 static const char *TAG = "AttCtrl";
 
 // 互补滤波参数
-#define FILTER_ALPHA 0.98f // 加速度计权重小，陀螺仪权重大
+#define FILTER_ALPHA 0.98f
 
-// PID 参数（需根据实际调校）
-#define ROLL_P 5.0f // 侧倾比例系数
-#define ROLL_I 0.5f
-#define ROLL_D 1.0f
-#define PITCH_P 3.0f // 俯仰比例系数（前后稳定）
-#define PITCH_I 0.2f
-#define PITCH_D 0.8f
+// PID 默认参数（可通过 BLE 动态修改）
+#define ROLL_P_DEFAULT 5.0f
+#define ROLL_I_DEFAULT 0.5f
+#define ROLL_D_DEFAULT 1.0f
+#define PITCH_P_DEFAULT 3.0f
+#define PITCH_I_DEFAULT 0.2f
+#define PITCH_D_DEFAULT 0.8f
 
 // 角度限幅
 #define MAX_ROLL 30.0f
 #define MAX_PITCH 30.0f
 
-static float roll_angle = 0.0f;  // 滤波后的滚转角（度）
-static float pitch_angle = 0.0f; // 滤波后的俯仰角（度）
+static float roll_angle = 0.0f;
+static float pitch_angle = 0.0f;
 
 // 陀螺仪积分用
 static float gyro_roll = 0.0f;
@@ -41,8 +41,11 @@ typedef struct
     float prev_error;
 } PID_t;
 
-static PID_t pid_roll = {ROLL_P, ROLL_I, ROLL_D, 0.0f, 0.0f};
-static PID_t pid_pitch = {PITCH_P, PITCH_I, PITCH_D, 0.0f, 0.0f};
+static PID_t pid_roll = {ROLL_P_DEFAULT, ROLL_I_DEFAULT, ROLL_D_DEFAULT, 0.0f, 0.0f};
+static PID_t pid_pitch = {PITCH_P_DEFAULT, PITCH_I_DEFAULT, PITCH_D_DEFAULT, 0.0f, 0.0f};
+
+// 外环参数：速度指令 → 期望俯仰角增益（度/100%速度）
+static float speed_to_pitch_gain = 0.3f; // 默认 0.3，可调
 
 static void pid_init(PID_t *pid, float kp, float ki, float kd)
 {
@@ -79,20 +82,15 @@ static float pid_update(PID_t *pid, float setpoint, float measurement, float dt,
  */
 static void accel_to_angles(float ax, float ay, float az, float *roll_acc, float *pitch_acc)
 {
-    // 根据用户描述：右侧倾斜时 ay 减少（负），向前倾斜时 ax 增加（正）
-    // 计算 roll = atan2(ay, az)  注意符号：右手系，Y 向右为正
     *roll_acc = atan2f(ay, az) * 180.0f / M_PI;
-    // 计算 pitch = atan2(-ax, sqrt(ay*ay+az*az))
     *pitch_acc = atan2f(-ax, sqrtf(ay * ay + az * az)) * 180.0f / M_PI;
 }
 
 void attitude_init(void)
 {
-    // 校准陀螺仪（必须静止）
     mpu6050_calibrate_gyro();
     vTaskDelay(pdMS_TO_TICKS(50));
 
-    // 读取初始角度
     float ax, ay, az, gx, gy, gz;
     mpu6050_read_all(&ax, &ay, &az, &gx, &gy, &gz);
     accel_to_angles(ax, ay, az, &roll_angle, &pitch_angle);
@@ -122,15 +120,13 @@ static void attitude_update(void)
     }
     last_time_ms = now_ms;
 
-    // 读取 MPU6050
     float ax, ay, az, gx, gy, gz;
     mpu6050_read_all(&ax, &ay, &az, &gx, &gy, &gz);
 
-    // 陀螺仪积分（注意单位：度/秒）
+    // 陀螺仪积分
     gyro_roll += gx * dt;
     gyro_pitch += gy * dt;
 
-    // 加速度计计算角度
     float roll_acc, pitch_acc;
     accel_to_angles(ax, ay, az, &roll_acc, &pitch_acc);
 
@@ -152,53 +148,76 @@ static void attitude_update(void)
 void attitude_stabilize(float target_speed, float target_turn,
                         float *left_out, float *right_out)
 {
-    // 更新姿态（先获取最新数据）
     attitude_update();
 
-    // 目标姿态：我们希望车体保持水平（roll=0, pitch=0）
-    float roll_setpoint = 0.0f;
-    float pitch_setpoint = 0.0f;
+    // 外环：速度指令 → 期望俯仰角（限幅）
+    float pitch_setpoint = target_speed * speed_to_pitch_gain;
+    if (pitch_setpoint > MAX_PITCH)
+        pitch_setpoint = MAX_PITCH;
+    if (pitch_setpoint < -MAX_PITCH)
+        pitch_setpoint = -MAX_PITCH;
 
-    // PID 计算修正量（修正量范围限制在 -50 ~ 50，避免过度补偿）
-    float dt = 0.02f; // 假设调用周期 20ms（实际由主循环频率决定）
+    float roll_setpoint = 0.0f; // 保持水平
+
+    // 计算 dt（实际间隔）
+    static uint32_t last_pid_ms = 0;
+    uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    float dt = (now_ms - last_pid_ms) / 1000.0f;
+    if (dt <= 0.0f || dt > 0.05f)
+        dt = 0.02f; // 默认值
+    last_pid_ms = now_ms;
+
     bool reset_int = (fabs(target_speed) < 0.1f && fabs(target_turn) < 0.1f);
+
     float roll_correction = pid_update(&pid_roll, roll_setpoint, roll_angle, dt, reset_int);
     float pitch_correction = pid_update(&pid_pitch, pitch_setpoint, pitch_angle, dt, reset_int);
 
-    // 限制修正量范围
-    if (roll_correction > 50.0f)
-        roll_correction = 50.0f;
-    if (roll_correction < -50.0f)
-        roll_correction = -50.0f;
-    if (pitch_correction > 50.0f)
-        pitch_correction = 50.0f;
-    if (pitch_correction < -50.0f)
-        pitch_correction = -50.0f;
+    // 修正量限幅
+    const float MAX_CORR = 50.0f;
+    if (roll_correction > MAX_CORR)
+        roll_correction = MAX_CORR;
+    if (roll_correction < -MAX_CORR)
+        roll_correction = -MAX_CORR;
+    if (pitch_correction > MAX_CORR)
+        pitch_correction = MAX_CORR;
+    if (pitch_correction < -MAX_CORR)
+        pitch_correction = -MAX_CORR;
 
-    // 混控：左轮 = 速度 + 转向 - 侧倾修正 + 俯仰修正（俯仰修正可辅助前后稳定性）
-    // 这里侧倾修正直接作用于差速：向右倾（正roll）则减小左轮、增大右轮，使之扶正
-    // 俯仰修正：前倾（正pitch）时，应减速或后退补偿，这里简单减速度
-    float left = target_speed + target_turn - roll_correction - pitch_correction * 0.5f;
-    float right = target_speed - target_turn + roll_correction - pitch_correction * 0.5f;
+    // 混控：基底速度 + 转向差速 ± 侧倾修正 + 俯仰修正（同向）
+    float left = target_speed + target_turn - roll_correction + pitch_correction;
+    float right = target_speed - target_turn + roll_correction + pitch_correction;
 
-    // 限制输出范围
-    if (left > 100.0f)
-        left = 100.0f;
-    if (left < -100.0f)
-        left = -100.0f;
-    if (right > 100.0f)
-        right = 100.0f;
-    if (right < -100.0f)
-        right = -100.0f;
+    // 输出限幅
+    left = (left > 100.0f) ? 100.0f : (left < -100.0f) ? -100.0f
+                                                       : left;
+    right = (right > 100.0f) ? 100.0f : (right < -100.0f) ? -100.0f
+                                                          : right;
 
     *left_out = left;
     *right_out = right;
-
-    // 可打印调试信息
-    // ESP_LOGI(TAG, "roll=%.1f, pitch=%.1f, corrR=%.1f, corrP=%.1f -> L=%.0f R=%.0f",
-    //          roll_angle, pitch_angle, roll_correction, pitch_correction, left, right);
 }
+
 void attitude_set_roll_kp(float kp)
 {
     pid_roll.kp = kp;
+    ESP_LOGI(TAG, "Roll KP set to %.2f", kp);
+}
+
+void attitude_set_pitch_kp(float kp)
+{
+    pid_pitch.kp = kp;
+    ESP_LOGI(TAG, "Pitch KP set to %.2f", kp);
+}
+
+void attitude_set_speed_to_pitch_gain(float gain)
+{
+    if (gain >= 0.0f && gain <= 1.0f)
+    {
+        speed_to_pitch_gain = gain;
+        ESP_LOGI(TAG, "Speed->Pitch gain set to %.2f", gain);
+    }
+    else
+    {
+        ESP_LOGW(TAG, "Invalid gain %.2f, must be [0,1]", gain);
+    }
 }
