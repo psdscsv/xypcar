@@ -63,9 +63,10 @@ static void control_task(void *pvParameters)
             target_turn = 100.0f;
         if (target_turn < -100.0f)
             target_turn = -100.0f;
-
-        // 姿态与速度级联控制
-        attitude_stabilize_with_speed(target_speed_ms, target_turn,
+        target_speed_ms = params.target_speed / 100.0f * params.max_linear_speed;
+        float target_angular_rate = params.target_turn / 100.0f * params.max_angular_speed; // 新增
+                                                                                            // 姿态与速度级联控制
+        attitude_stabilize_with_speed(target_speed_ms, target_angular_rate,
                                       left_speed, right_speed,
                                       &left_out, &right_out);
 
@@ -84,7 +85,8 @@ void car_control_init(void)
         ESP_LOGE(TAG, "Failed to create mutex");
         return;
     }
-
+    s_params.max_angular_speed = 30.0f; // 对应100%目标转向的角速度(°/s)，需根据实际情况调整
+    s_params.stop = 1;
     // 将初始 PID 参数设置到姿态控制模块
     attitude_set_roll_kp(s_params.kp_roll);
     attitude_set_pitch_kp(s_params.kp_pitch);

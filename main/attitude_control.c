@@ -1,4 +1,3 @@
-// attitude_control.c
 #include "attitude_control.h"
 #include "mpu6050.h"
 #include "esp_log.h"
@@ -8,10 +7,7 @@
 
 static const char *TAG = "AttCtrl";
 
-// 互补滤波参数
 #define FILTER_ALPHA 0.98f
-
-// 角度限幅
 #define MAX_ROLL 30.0f
 #define MAX_PITCH 30.0f
 
@@ -23,20 +19,27 @@ static const char *TAG = "AttCtrl";
 #define PITCH_I_DEFAULT 0.2f
 #define PITCH_D_DEFAULT 0.6f
 
-// 速度外环 PID 默认参数（控制期望俯仰角）
+// 线速度外环 PID 默认参数
 #define SPEED_KP_DEFAULT 1.8f
 #define SPEED_KI_DEFAULT 0.4f
 #define SPEED_KD_DEFAULT 0.1f
 
-// 最大期望俯仰角（度），限制最大加速度
+// 角速度外环 PID 默认参数（输出期望滚转角）
+#define YAW_RATE_KP_DEFAULT 1.2f
+#define YAW_RATE_KI_DEFAULT 0.3f
+#define YAW_RATE_KD_DEFAULT 0.05f
+
+// 最大期望俯仰角（度）
 #define MAX_PITCH_CMD 50.0f
+// 最大期望滚转角（度），由角速度环输出限制
+#define MAX_ROLL_CMD 30.0f
 
 static float roll_angle = 0.0f;
 static float pitch_angle = 0.0f;
+static float current_yaw_rate = 0.0f; // 当前偏航角速度 (度/秒)
 
 static uint32_t last_time_ms = 0;
 
-// PID 结构体
 typedef struct
 {
     float kp;
@@ -48,9 +51,8 @@ typedef struct
 
 static PID_t pid_roll = {ROLL_P_DEFAULT, ROLL_I_DEFAULT, ROLL_D_DEFAULT, 0.0f, 0.0f};
 static PID_t pid_pitch = {PITCH_P_DEFAULT, PITCH_I_DEFAULT, PITCH_D_DEFAULT, 0.0f, 0.0f};
-
-// 速度外环 PID（输出期望俯仰角）
 static PID_t pid_speed = {SPEED_KP_DEFAULT, SPEED_KI_DEFAULT, SPEED_KD_DEFAULT, 0.0f, 0.0f};
+static PID_t pid_yaw_rate = {YAW_RATE_KP_DEFAULT, YAW_RATE_KI_DEFAULT, YAW_RATE_KD_DEFAULT, 0.0f, 0.0f};
 
 // 转向->期望滚转增益（度/100%转向）
 static float roll_turn_gain = 0.6f;
@@ -106,11 +108,14 @@ static void attitude_update(void)
     float ax, ay, az, gx, gy, gz;
     mpu6050_read_all(&ax, &ay, &az, &gx, &gy, &gz);
 
+    // 保存偏航角速度（已减去零偏）
+    current_yaw_rate = gz; // 单位：度/秒
+
     // 加速度计角度
     float roll_acc, pitch_acc;
     accel_to_angles(ax, ay, az, &roll_acc, &pitch_acc);
 
-    // 陀螺仪积分（基于上一时刻滤波角度）
+    // 陀螺仪积分
     float gyro_roll_new = roll_angle + gx * dt;
     float gyro_pitch_new = pitch_angle + gy * dt;
 
@@ -133,7 +138,6 @@ void attitude_init(void)
 {
     mpu6050_calibrate_gyro();
     vTaskDelay(pdMS_TO_TICKS(50));
-
     float ax, ay, az, gx, gy, gz;
     mpu6050_read_all(&ax, &ay, &az, &gx, &gy, &gz);
     accel_to_angles(ax, ay, az, &roll_angle, &pitch_angle);
@@ -186,18 +190,20 @@ void attitude_stabilize(float target_speed, float target_turn,
     *left_out = fmaxf(-100.0f, fminf(100.0f, left));
     *right_out = fmaxf(-100.0f, fminf(100.0f, right));
 }
+void attitude_get_yaw_rate(float *yaw_rate)
+{
+    *yaw_rate = current_yaw_rate;
+}
 
-// 级联控制（速度外环 + 姿态内环） – 推荐使用
-void attitude_stabilize_with_speed(float target_speed, float target_turn,
+void attitude_stabilize_with_speed(float target_linear_speed, float target_angular_rate,
                                    float current_left_speed, float current_right_speed,
                                    float *left_out, float *right_out)
 {
     attitude_update();
 
-    // 当前实际线速度（取平均）
     float current_linear = (current_left_speed + current_right_speed) / 2.0f;
 
-    // 1. 速度外环：计算期望俯仰角
+    // 时间计算
     static uint32_t last_speed_ms = 0;
     uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
     float dt = (now_ms - last_speed_ms) / 1000.0f;
@@ -205,22 +211,23 @@ void attitude_stabilize_with_speed(float target_speed, float target_turn,
         dt = 0.02f;
     last_speed_ms = now_ms;
 
-    bool reset_speed = (fabsf(target_speed) < 0.05f);
-    float pitch_setpoint = pid_update(&pid_speed, target_speed, current_linear, dt, reset_speed);
-    // 限制期望俯仰角
+    bool reset_integral = (fabsf(target_linear_speed) < 0.05f && fabsf(target_angular_rate) < 1.0f);
+
+    // 1. 线速度外环 -> 期望俯仰角
+    float pitch_setpoint = pid_update(&pid_speed, target_linear_speed, current_linear, dt, reset_integral);
     if (pitch_setpoint > MAX_PITCH_CMD)
         pitch_setpoint = MAX_PITCH_CMD;
     if (pitch_setpoint < -MAX_PITCH_CMD)
         pitch_setpoint = -MAX_PITCH_CMD;
 
-    // 2. 转向->期望滚转角
-    float roll_setpoint = target_turn * roll_turn_gain;
-    if (roll_setpoint > MAX_ROLL)
-        roll_setpoint = MAX_ROLL;
-    if (roll_setpoint < -MAX_ROLL)
-        roll_setpoint = -MAX_ROLL;
+    // 2. 角速度外环 -> 期望滚转角
+    float roll_setpoint = pid_update(&pid_yaw_rate, target_angular_rate, current_yaw_rate, dt, reset_integral);
+    if (roll_setpoint > MAX_ROLL_CMD)
+        roll_setpoint = MAX_ROLL_CMD;
+    if (roll_setpoint < -MAX_ROLL_CMD)
+        roll_setpoint = -MAX_ROLL_CMD;
 
-    // 3. 姿态内环 PID（控制实际俯仰/滚转跟随期望）
+    // 3. 姿态内环 PID（控制实际角度跟随期望）
     static uint32_t last_inner_ms = 0;
     now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
     dt = (now_ms - last_inner_ms) / 1000.0f;
@@ -228,26 +235,24 @@ void attitude_stabilize_with_speed(float target_speed, float target_turn,
         dt = 0.02f;
     last_inner_ms = now_ms;
 
-    bool reset_inner = reset_speed; // 速度指令为零时重置内环积分
-    float roll_corr = pid_update(&pid_roll, roll_setpoint, roll_angle, dt, reset_inner);
-    float pitch_corr = pid_update(&pid_pitch, pitch_setpoint, pitch_angle, dt, reset_inner);
+    float roll_corr = pid_update(&pid_roll, roll_setpoint, roll_angle, dt, reset_integral);
+    float pitch_corr = pid_update(&pid_pitch, pitch_setpoint, pitch_angle, dt, reset_integral);
 
     const float MAX_CORR = 60.0f;
     roll_corr = fmaxf(-MAX_CORR, fminf(MAX_CORR, roll_corr));
     pitch_corr = fmaxf(-MAX_CORR, fminf(MAX_CORR, pitch_corr));
 
-    // 4. 混控（最终电机指令）
-    // 转向差速 + 滚转修正 + 俯仰修正（同向）
-    float left = target_turn - roll_corr + pitch_corr;
-    float right = -target_turn + roll_corr + pitch_corr;
+    // 4. 混控：差速由滚转修正产生，同向由俯仰修正产生
+    float left = -roll_corr + pitch_corr;
+    float right = roll_corr + pitch_corr;
 
-    // 5. 安全保护：如果俯仰角过大且目标速度方向与倾斜方向一致，强制降低输出
-    if (pitch_angle > 15.0f && target_speed > 0)
+    // 安全保护：俯仰角过大时限制输出
+    if (pitch_angle > 15.0f && target_linear_speed > 0)
     {
         left *= 0.5f;
         right *= 0.5f;
     }
-    else if (pitch_angle < -15.0f && target_speed < 0)
+    else if (pitch_angle < -15.0f && target_linear_speed < 0)
     {
         left *= 0.5f;
         right *= 0.5f;
@@ -255,12 +260,7 @@ void attitude_stabilize_with_speed(float target_speed, float target_turn,
 
     *left_out = fmaxf(-100.0f, fminf(100.0f, left));
     *right_out = fmaxf(-100.0f, fminf(100.0f, right));
-
-    // 可选：打印调试信息
-    // ESP_LOGI(TAG, "target=%.2f, curr=%.2f, pitch_sp=%.1f, pitch=%.1f, left=%.0f, right=%.0f",
-    //          target_speed, current_linear, pitch_setpoint, pitch_angle, *left_out, *right_out);
 }
-
 // ========== 参数设置接口 ==========
 void attitude_set_roll_kp(float kp)
 {

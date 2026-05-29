@@ -92,7 +92,7 @@ static esp_err_t joystick_api_handler(httpd_req_t *req)
         right_speed = -100;
 
     float left_out, right_out;
-    attitude_stabilize((float)ly_mapped, (float)rx_mapped, &left_out, &right_out);
+    // attitude_stabilize((float)ly_mapped, (float)rx_mapped, &left_out, &right_out);
 
     ESP_LOGI(TAG, "Joystick raw: ly=%d, rx=%d -> mapped ly=%d, rx=%d -> left=%d%%, right=%d%%",
              ly, rx, ly_mapped, rx_mapped, left_speed, right_speed);

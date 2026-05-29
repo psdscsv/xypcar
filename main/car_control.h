@@ -11,24 +11,21 @@ extern "C"
 
     typedef struct
     {
-        // 实时控制指令
-        int stop;           // 0: 正常，1: 紧急停止
+        int stop;
         float target_speed; // -100 ~ 100
-        float target_turn;  // -100 ~ 100
+        float target_turn;  // -100 ~ 100 → 将被转换为角速度
 
-        // 姿态内环 PID 参数
         float kp_roll;
         float kp_pitch;
 
-        // 速度外环 PID 参数
         float speed_pid_kp;
         float speed_pid_ki;
         float speed_pid_kd;
 
-        // 其他增益
-        float turn_gain;        // 转向灵敏度
-        float max_linear_speed; // 最大线速度(m/s)，对应100%目标速度
-        float speed_pitch_gain; // 已弃用，保留兼容
+        float turn_gain;         // 保留但不再使用（兼容旧版）
+        float max_linear_speed;  // 对应100%目标线速度的m/s值
+        float max_angular_speed; // 新增：对应100%目标转向的角速度(°/s)
+        float speed_pitch_gain;  // 已弃用
     } car_control_params_t;
 
     void car_control_init(void);
