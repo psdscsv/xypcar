@@ -86,19 +86,16 @@ void car_control_update_params(const car_control_params_t *params)
         return;
 
     xSemaphoreTake(s_params_mutex, portMAX_DELAY);
-    // 复制整个结构体
     s_params = *params;
     xSemaphoreGive(s_params_mutex);
 
-    // 立即更新姿态控制模块中的参数（使新增益生效）
+    // 更新姿态控制器参数
     attitude_set_roll_kp(params->kp_roll);
     attitude_set_pitch_kp(params->kp_pitch);
     attitude_set_speed_to_pitch_gain(params->speed_pitch_gain);
-
-    ESP_LOGD(TAG, "Params updated: spd=%.1f, turn=%.1f, kpR=%.2f, kpP=%.2f, spGain=%.2f, turnGain=%.2f",
-             params->target_speed, params->target_turn,
-             params->kp_roll, params->kp_pitch,
-             params->speed_pitch_gain, params->turn_gain);
+    attitude_set_roll_turn_gain(params->roll_turn_gain);
+    attitude_set_turn_speed_factor(params->turn_speed_factor);
+    // turn_gain 在 car_control 的任务中使用，已乘入 adjusted_turn
 }
 
 void car_control_get_params(car_control_params_t *params)

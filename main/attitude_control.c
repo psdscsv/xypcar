@@ -28,7 +28,11 @@ static float pitch_angle = 0.0f;
 
 // 陀螺仪积分用
 static uint32_t last_time_ms = 0;
-
+static float roll_turn_gain = 0.8f;    // 转向指令到期望滚转角增益 (度/100%转向)
+static float turn_speed_factor = 0.5f; // 高速转向衰减系数: 实际转向 = 目标转向 * (1 - |speed|/100 * factor)
+// 输出速率限制 (度/秒)
+static float max_accel = 150.0f; // 最大加减速率 (%/s)
+static float last_left_out = 0.0f, last_right_out = 0.0f;
 // PID 控制器状态
 typedef struct
 {
@@ -149,53 +153,63 @@ void attitude_stabilize(float target_speed, float target_turn,
 {
     attitude_update();
 
-    // 外环：速度指令 → 期望俯仰角（限幅）
+    // ========== 1. 速度‑转向增益调度 ==========
+    float speed_abs = fabsf(target_speed);
+    float turn_factor = 1.0f - (speed_abs / 100.0f) * turn_speed_factor;
+    if (turn_factor < 0.2f)
+        turn_factor = 0.2f; // 最低保留20%灵敏度
+    float adjusted_turn = target_turn * turn_factor;
+
+    // ========== 2. 外环：速度 → 期望俯仰角 ==========
     float pitch_setpoint = target_speed * speed_to_pitch_gain;
     if (pitch_setpoint > MAX_PITCH)
         pitch_setpoint = MAX_PITCH;
     if (pitch_setpoint < -MAX_PITCH)
         pitch_setpoint = -MAX_PITCH;
 
-    float roll_setpoint = 0.0f; // 保持水平
+    // ========== 3. 动态期望滚转角（转向时允许车身倾斜） ==========
+    float roll_setpoint = adjusted_turn * roll_turn_gain;
+    if (roll_setpoint > MAX_ROLL)
+        roll_setpoint = MAX_ROLL;
+    if (roll_setpoint < -MAX_ROLL)
+        roll_setpoint = -MAX_ROLL;
 
-    // 计算 dt（实际间隔）
+    // ========== 4. PID 计算 ==========
     static uint32_t last_pid_ms = 0;
     uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
     float dt = (now_ms - last_pid_ms) / 1000.0f;
     if (dt <= 0.0f || dt > 0.05f)
-        dt = 0.02f; // 默认值
+        dt = 0.02f;
     last_pid_ms = now_ms;
 
-    bool reset_int = (fabs(target_speed) < 0.1f && fabs(target_turn) < 0.1f);
-
+    bool reset_int = (fabsf(target_speed) < 0.1f && fabsf(target_turn) < 0.1f);
     float roll_correction = pid_update(&pid_roll, roll_setpoint, roll_angle, dt, reset_int);
     float pitch_correction = pid_update(&pid_pitch, pitch_setpoint, pitch_angle, dt, reset_int);
 
     // 修正量限幅
     const float MAX_CORR = 50.0f;
-    if (roll_correction > MAX_CORR)
-        roll_correction = MAX_CORR;
-    if (roll_correction < -MAX_CORR)
-        roll_correction = -MAX_CORR;
-    if (pitch_correction > MAX_CORR)
-        pitch_correction = MAX_CORR;
-    if (pitch_correction < -MAX_CORR)
-        pitch_correction = -MAX_CORR;
+    roll_correction = fmaxf(-MAX_CORR, fminf(MAX_CORR, roll_correction));
+    pitch_correction = fmaxf(-MAX_CORR, fminf(MAX_CORR, pitch_correction));
 
-    // 混控：基底速度 + 转向差速 ± 侧倾修正 + 俯仰修正（同向）
-    float left = target_speed + target_turn - roll_correction + pitch_correction;
-    float right = target_speed - target_turn + roll_correction + pitch_correction;
+    // ========== 5. 混控（注意转向已经过调度，不再重复乘 turn_gain） ==========
+    float left = target_speed + adjusted_turn - roll_correction + pitch_correction;
+    float right = target_speed - adjusted_turn + roll_correction + pitch_correction;
 
-    // 输出限幅
-    left = (left > 100.0f) ? 100.0f : (left < -100.0f) ? -100.0f
-                                                       : left;
-    right = (right > 100.0f) ? 100.0f : (right < -100.0f) ? -100.0f
-                                                          : right;
+    // ========== 6. 输出速率限制（平滑加减速） ==========
+    float dt_sec = dt > 0.01f ? dt : 0.02f;
+    float max_change = max_accel * dt_sec;
+    left = fmaxf(last_left_out - max_change, fminf(last_left_out + max_change, left));
+    right = fmaxf(last_right_out - max_change, fminf(last_right_out + max_change, right));
+    last_left_out = left;
+    last_right_out = right;
+
+    // 最终限幅
+    left = fmaxf(-100.0f, fminf(100.0f, left));
+    right = fmaxf(-100.0f, fminf(100.0f, right));
 
     *left_out = left;
     *right_out = right;
 }
-
 void attitude_set_roll_kp(float kp)
 {
     pid_roll.kp = kp;
@@ -226,4 +240,21 @@ void attitude_clean_pid(void)
     pid_roll.prev_error = 0.0f;
     pid_pitch.integral = 0.0f;
     pid_pitch.prev_error = 0.0f;
+}
+void attitude_set_roll_turn_gain(float gain)
+{
+    if (gain >= 0.0f && gain <= 2.0f)
+    {
+        roll_turn_gain = gain;
+        ESP_LOGI(TAG, "Roll turn gain set to %.2f", gain);
+    }
+}
+
+void attitude_set_turn_speed_factor(float factor)
+{
+    if (factor >= 0.0f && factor <= 1.0f)
+    {
+        turn_speed_factor = factor;
+        ESP_LOGI(TAG, "Turn speed factor set to %.2f", factor);
+    }
 }

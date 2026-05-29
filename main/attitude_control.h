@@ -47,6 +47,8 @@ extern "C"
      */
     void attitude_set_speed_to_pitch_gain(float gain);
     void attitude_clean_pid(void);
+    void attitude_set_roll_turn_gain(float gain);      // 转向->期望滚转增益
+    void attitude_set_turn_speed_factor(float factor); // 速度‑转向调度系数
 #ifdef __cplusplus
 }
 #endif

@@ -10,20 +10,22 @@ extern "C"
 {
 #endif
 
-    // 控制参数结构体（包含所有可调参数和指令）
     typedef struct
     {
-        // 实时控制指令
-        int stop;           // 0: 正常，1: 紧急停止
-        float target_speed; // -100 ~ 100，原始值（未经任何调整）
-        float target_turn;  // -100 ~ 100，原始值
+        // 实时指令
+        int stop;
+        float target_speed;
+        float target_turn;
 
-        // 可调参数
-        float kp_roll;          // 滚转比例系数
-        float kp_pitch;         // 俯仰比例系数
-        float speed_pitch_gain; // 速度->俯仰角增益
-        float turn_gain;        // 转向增益（用于调整转向灵敏度）
+        // 原有增益
+        float kp_roll;
+        float kp_pitch;
+        float speed_pitch_gain;
+        float turn_gain;
 
+        // 新增增益
+        float roll_turn_gain;    // 转向→期望滚转增益
+        float turn_speed_factor; // 速度‑转向调度系数
     } car_control_params_t;
 
     /**
