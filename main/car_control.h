@@ -1,9 +1,8 @@
+// car_control.h
 #ifndef CAR_CONTROL_H
 #define CAR_CONTROL_H
 
 #include <stdbool.h>
-#include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
 
 #ifdef __cplusplus
 extern "C"
@@ -12,36 +11,28 @@ extern "C"
 
     typedef struct
     {
-        // 实时指令
-        int stop;
-        float target_speed;
-        float target_turn;
+        // 实时控制指令
+        int stop;           // 0: 正常，1: 紧急停止
+        float target_speed; // -100 ~ 100
+        float target_turn;  // -100 ~ 100
 
-        // 原有增益
+        // 姿态内环 PID 参数
         float kp_roll;
         float kp_pitch;
-        float speed_pitch_gain;
-        float turn_gain;
 
-        // 新增增益
-        float roll_turn_gain;    // 转向→期望滚转增益
-        float turn_speed_factor; // 速度‑转向调度系数
+        // 速度外环 PID 参数
+        float speed_pid_kp;
+        float speed_pid_ki;
+        float speed_pid_kd;
+
+        // 其他增益
+        float turn_gain;        // 转向灵敏度
+        float max_linear_speed; // 最大线速度(m/s)，对应100%目标速度
+        float speed_pitch_gain; // 已弃用，保留兼容
     } car_control_params_t;
 
-    /**
-     * @brief 初始化小车控制模块
-     */
     void car_control_init(void);
-
-    /**
-     * @brief 外部更新控制参数（由 BLE 或其他模块调用）
-     * @param params 指向新的控制参数结构体（包含指令和增益）
-     */
     void car_control_update_params(const car_control_params_t *params);
-
-    /**
-     * @brief 获取当前控制参数（带互斥保护）
-     */
     void car_control_get_params(car_control_params_t *params);
 
 #ifdef __cplusplus

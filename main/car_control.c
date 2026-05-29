@@ -1,6 +1,8 @@
+// car_control.c
 #include "car_control.h"
 #include "motor_control.h"
 #include "attitude_control.h"
+#include "encoder.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -13,49 +15,62 @@ static const char *TAG = "CarCtrl";
 static car_control_params_t s_params = {
     .target_speed = 0,
     .target_turn = 0,
-    .kp_roll = 5.0f,
-    .kp_pitch = 3.0f,
-    .speed_pitch_gain = 0.3f,
-    .turn_gain = 1.0f,
+    .kp_roll = 2.0f,
+    .kp_pitch = 2.5f,
+    .speed_pitch_gain = 0.15f, // 不再使用
+    .turn_gain = 0.5f,
+    .max_linear_speed = 2.0f, // 最大线速度 m/s（需标定）
+    .speed_pid_kp = 1.8f,
+    .speed_pid_ki = 0.4f,
+    .speed_pid_kd = 0.1f,
 };
+
 static SemaphoreHandle_t s_params_mutex = NULL;
 
-// 控制任务周期（ms）
-#define CONTROL_PERIOD_MS 20
+#define CONTROL_PERIOD_MS 20 // 20ms 控制周期
 
-// 控制任务：周期调用 attitude_stabilize
+// 控制任务
 static void control_task(void *pvParameters)
 {
     car_control_params_t params;
-    float left, right;
+    float left_out, right_out;
+    float left_speed, right_speed;
+    float target_speed_ms; // 目标线速度 (m/s)
     TickType_t last_wake = xTaskGetTickCount();
 
     while (1)
     {
-        // 获取当前参数（含指令和增益）
+        // 获取当前控制参数（含目标速度和转向）
         car_control_get_params(&params);
 
-        // 应用转向增益到目标转向（此处做增益调整，因为 attitude_stabilize 接收的是调整后的转向）
-        float adjusted_turn = params.target_turn * params.turn_gain;
-        // 限幅到 [-100,100]
-        if (adjusted_turn > 100.0f)
-            adjusted_turn = 100.0f;
-        if (adjusted_turn < -100.0f)
-            adjusted_turn = -100.0f;
+        if (params.stop)
+        {
+            motor_set_speed(0, 0);
+            attitude_clean_pid();
+            vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(CONTROL_PERIOD_MS));
+            continue;
+        }
 
-        // 姿态稳定控制（内部会使用 speed_pitch_gain 和 PID 参数）
-        attitude_stabilize(params.target_speed, adjusted_turn, &left, &right);
+        // 读取编码器实际速度
+        encoder_get_speed(&left_speed, &right_speed);
+
+        // 将目标速度（-100~100）映射为线速度 (m/s)
+        target_speed_ms = params.target_speed / 100.0f * params.max_linear_speed;
+
+        // 应用转向增益（灵敏度调节）
+        float target_turn = params.target_turn * params.turn_gain;
+        if (target_turn > 100.0f)
+            target_turn = 100.0f;
+        if (target_turn < -100.0f)
+            target_turn = -100.0f;
+
+        // 姿态与速度级联控制
+        attitude_stabilize_with_speed(target_speed_ms, target_turn,
+                                      left_speed, right_speed,
+                                      &left_out, &right_out);
 
         // 输出到电机
-        if (!params.stop)
-        {
-            motor_set_speed(left, right);
-        }
-        else
-        {
-            motor_set_speed(0, 0); // 紧急停止
-            attitude_clean_pid();
-        }
+        motor_set_speed(left_out, right_out);
 
         vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(CONTROL_PERIOD_MS));
     }
@@ -70,10 +85,10 @@ void car_control_init(void)
         return;
     }
 
-    // 将初始参数设置到姿态控制模块
+    // 将初始 PID 参数设置到姿态控制模块
     attitude_set_roll_kp(s_params.kp_roll);
     attitude_set_pitch_kp(s_params.kp_pitch);
-    attitude_set_speed_to_pitch_gain(s_params.speed_pitch_gain);
+    attitude_set_speed_pid(s_params.speed_pid_kp, s_params.speed_pid_ki, s_params.speed_pid_kd);
 
     // 创建控制任务
     xTaskCreate(control_task, "car_ctrl", 4096, NULL, 5, NULL);
@@ -89,13 +104,16 @@ void car_control_update_params(const car_control_params_t *params)
     s_params = *params;
     xSemaphoreGive(s_params_mutex);
 
-    // 更新姿态控制器参数
+    // 更新姿态控制模块中的动态参数
     attitude_set_roll_kp(params->kp_roll);
     attitude_set_pitch_kp(params->kp_pitch);
-    attitude_set_speed_to_pitch_gain(params->speed_pitch_gain);
-    attitude_set_roll_turn_gain(params->roll_turn_gain);
-    attitude_set_turn_speed_factor(params->turn_speed_factor);
-    // turn_gain 在 car_control 的任务中使用，已乘入 adjusted_turn
+    attitude_set_speed_pid(params->speed_pid_kp, params->speed_pid_ki, params->speed_pid_kd);
+
+    ESP_LOGD(TAG, "Params updated: spd=%.1f, turn=%.1f, kpR=%.2f, kpP=%.2f, spKp=%.2f, spKi=%.2f, maxSpd=%.2f",
+             params->target_speed, params->target_turn,
+             params->kp_roll, params->kp_pitch,
+             params->speed_pid_kp, params->speed_pid_ki,
+             params->max_linear_speed);
 }
 
 void car_control_get_params(car_control_params_t *params)
