@@ -15,13 +15,6 @@ extern "C"
     void attitude_init(void);
 
     /**
-     * @brief 获取当前姿态角（单位：度）
-     * @param roll  滚转角（左右倾斜），正向右倾
-     * @param pitch 俯仰角（前后倾斜），正向抬头
-     */
-    void attitude_get_angles(float *roll, float *pitch);
-
-    /**
      * @brief 获取当前偏航角速度（单位：度/秒）
      * @param yaw_rate 输出偏航角速度
      */
@@ -49,7 +42,6 @@ extern "C"
     void attitude_set_pitch_kd(float kd);
     void attitude_set_speed_pid(float kp, float ki, float kd);    // 线速度外环
     void attitude_set_yaw_rate_pid(float kp, float ki, float kd); // 角速度外环
-    void attitude_set_speed_to_pitch_gain(float gain);            // 已弃用，保留兼容
     void attitude_clean_pid(void);
 
 #ifdef __cplusplus

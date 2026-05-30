@@ -264,14 +264,3 @@ void ble_control_init(void)
     esp_ble_gatts_app_register(0);
     ESP_LOGI(TAG, "BLE control module initialized");
 }
-
-// 可选：为了兼容旧代码，保留 ble_get_target 接口（但不再推荐使用）
-void ble_get_target(float *speed, float *turn)
-{
-    car_control_params_t params;
-    car_control_get_params(&params);
-    if (speed)
-        *speed = params.target_speed;
-    if (turn)
-        *turn = params.target_turn;
-}

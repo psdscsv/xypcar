@@ -132,17 +132,6 @@ void encoder_get_pulse(int *left, int *right)
         *right = right_val;
 }
 
-void encoder_reset_pulse(void)
-{
-    portENTER_CRITICAL(&s_mux);
-    s_left_pulse = 0;
-    s_right_pulse = 0;
-    portEXIT_CRITICAL(&s_mux);
-    s_last_left_pulse = 0;
-    s_last_right_pulse = 0;
-    s_last_time_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
-}
-
 void encoder_get_speed(float *left_speed_ms, float *right_speed_ms)
 {
     if (!left_speed_ms || !right_speed_ms)

@@ -14,13 +14,6 @@ extern "C"
      */
     void ble_control_init(void);
 
-    /**
-     * @brief 获取当前目标速度与转向（由BLE数据更新）
-     * @param speed 输出目标速度 [-100, 100]
-     * @param turn  输出目标转向 [-100, 100]
-     */
-    void ble_get_target(float *speed, float *turn);
-
 #ifdef __cplusplus
 }
 #endif

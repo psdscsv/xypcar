@@ -19,9 +19,4 @@ void motor_init(void);
  */
 void motor_set_speed(float left_percent, float right_percent);
 
-/**
- * @brief 紧急停止电机（速度归零）
- */
-void motor_emergency_stop(void);
-
 #endif // MOTOR_CONTROL_H

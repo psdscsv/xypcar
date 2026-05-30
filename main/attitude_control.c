@@ -145,51 +145,6 @@ void attitude_init(void)
     ESP_LOGI(TAG, "Attitude init: roll=%.2f, pitch=%.2f", roll_angle, pitch_angle);
 }
 
-void attitude_get_angles(float *roll, float *pitch)
-{
-    *roll = roll_angle;
-    *pitch = pitch_angle;
-}
-
-// 原始姿态稳定（无速度反馈，仅内环） – 兼容旧代码，不建议使用
-void attitude_stabilize(float target_speed, float target_turn,
-                        float *left_out, float *right_out)
-{
-    attitude_update();
-
-    float pitch_setpoint = target_speed * 0.2f; // 简单映射
-    if (pitch_setpoint > MAX_PITCH_CMD)
-        pitch_setpoint = MAX_PITCH_CMD;
-    if (pitch_setpoint < -MAX_PITCH_CMD)
-        pitch_setpoint = -MAX_PITCH_CMD;
-    float roll_setpoint = target_turn * roll_turn_gain;
-    if (roll_setpoint > MAX_ROLL)
-        roll_setpoint = MAX_ROLL;
-    if (roll_setpoint < -MAX_ROLL)
-        roll_setpoint = -MAX_ROLL;
-
-    static uint32_t last_pid_ms = 0;
-    uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
-    float dt = (now_ms - last_pid_ms) / 1000.0f;
-    if (dt <= 0.0f || dt > 0.05f)
-        dt = 0.02f;
-    last_pid_ms = now_ms;
-
-    bool reset_int = (fabsf(target_speed) < 0.1f && fabsf(target_turn) < 0.1f);
-    float roll_corr = pid_update(&pid_roll, roll_setpoint, roll_angle, dt, reset_int);
-    float pitch_corr = pid_update(&pid_pitch, pitch_setpoint, pitch_angle, dt, reset_int);
-
-    const float MAX_CORR = 50.0f;
-    roll_corr = fmaxf(-MAX_CORR, fminf(MAX_CORR, roll_corr));
-    pitch_corr = fmaxf(-MAX_CORR, fminf(MAX_CORR, pitch_corr));
-
-    // 混控：转向差速 + 滚转修正 + 俯仰修正（俯仰修正同向用于加减速）
-    float left = target_turn - roll_corr + pitch_corr;
-    float right = -target_turn + roll_corr + pitch_corr;
-
-    *left_out = fmaxf(-100.0f, fminf(100.0f, left));
-    *right_out = fmaxf(-100.0f, fminf(100.0f, right));
-}
 void attitude_get_yaw_rate(float *yaw_rate)
 {
     *yaw_rate = current_yaw_rate;
@@ -199,6 +154,7 @@ void attitude_stabilize_with_speed(float target_linear_speed, float target_angul
                                    float current_left_speed, float current_right_speed,
                                    float *left_out, float *right_out)
 {
+     ESP_LOGI(TAG, "Attitude update: roll=%.2f, pitch=%.2f, yaw_rate=%.2f", roll_angle, pitch_angle, current_yaw_rate);   
     attitude_update();
 
     float current_linear = (current_left_speed + current_right_speed) / 2.0f;
@@ -289,12 +245,6 @@ void attitude_set_speed_pid(float kp, float ki, float kd)
     pid_speed.ki = ki;
     pid_speed.kd = kd;
     ESP_LOGI(TAG, "Speed PID: KP=%.2f, KI=%.2f, KD=%.2f", kp, ki, kd);
-}
-
-void attitude_set_speed_to_pitch_gain(float gain)
-{
-    // 旧接口，已弃用，留空
-    ESP_LOGW(TAG, "speed_to_pitch_gain is deprecated, use speed PID instead");
 }
 
 void attitude_clean_pid(void)

@@ -17,7 +17,6 @@ static car_control_params_t s_params = {
     .target_turn = 0,
     .kp_roll = 2.0f,
     .kp_pitch = 2.5f,
-    .speed_pitch_gain = 0.15f, // 不再使用
     .turn_gain = 0.5f,
     .max_linear_speed = 2.0f, // 最大线速度 m/s（需标定）
     .speed_pid_kp = 1.8f,

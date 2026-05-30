@@ -26,10 +26,6 @@ extern "C"
      */
     void encoder_get_pulse(int *left, int *right);
 
-    /**
-     * @brief 清空左右电机脉冲计数（归零）
-     */
-    void encoder_reset_pulse(void);
 
     /**
      * @brief 获取左右电机的瞬时转速（基于最近两次读取的时间差）

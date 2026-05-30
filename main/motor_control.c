@@ -155,9 +155,3 @@ void motor_set_speed(float left_percent, float right_percent)
     ledc_update_duty(LEDC_MODE, CH_M2_FWD);
     ledc_update_duty(LEDC_MODE, CH_M2_REV);
 }
-
-void motor_emergency_stop(void)
-{
-    motor_set_speed(0, 0);
-    ESP_LOGW(TAG, "Emergency stop");
-}
