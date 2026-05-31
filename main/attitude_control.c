@@ -13,18 +13,18 @@ static const char *TAG = "AttCtrl";
 #define MAX_PITCH    30.0f   // 俯仰角限幅（仅用于监控）
 
 // 姿态内环 PD 默认参数
-#define PITCH_P_DEFAULT 8.0f
-#define PITCH_D_DEFAULT 1.5f
+#define PITCH_P_DEFAULT 2.5f
+#define PITCH_D_DEFAULT -0.1f
 
 // 线速度外环 PI 默认参数
-#define SPEED_KP_DEFAULT 1.2f
-#define SPEED_KI_DEFAULT 0.3f
+#define SPEED_KP_DEFAULT 1.0f
+#define SPEED_KI_DEFAULT 0.1f
 
 // 偏航角速度外环 P 默认参数
 #define YAW_RATE_KP_DEFAULT 0.5f
 
 // 最大期望俯仰角（度）
-static float max_pitch_cmd = 15.0f;
+static float max_pitch_cmd = 45.0f;
 
 static float roll_angle = 0.0f;
 static float pitch_angle = 0.0f;
@@ -33,6 +33,8 @@ static float current_yaw_rate = 0.0f;
 
 static uint32_t last_time_ms = 0;
 
+static float roll_offset = 0.0f;
+static float pitch_offset = 0.0f;
 typedef struct {
     float kp;
     float ki;
@@ -98,11 +100,16 @@ static void attitude_update(void) {
     float gyro_roll_new  = roll_angle + gx * dt;
     float gyro_pitch_new = pitch_angle + gy * dt;
 
-    // 互补滤波
-    roll_angle  = FILTER_ALPHA * gyro_roll_new  + (1.0f - FILTER_ALPHA) * roll_acc;
-    pitch_angle = FILTER_ALPHA * gyro_pitch_new + (1.0f - FILTER_ALPHA) * pitch_acc;
-    // 俯仰角速度直接使用陀螺仪 Y 轴（注意正负方向需与俯仰角定义一致）
-    pitch_rate = gy;
+// 互补滤波
+roll_angle  = FILTER_ALPHA * gyro_roll_new  + (1.0f - FILTER_ALPHA) * roll_acc;
+pitch_angle = FILTER_ALPHA * gyro_pitch_new + (1.0f - FILTER_ALPHA) * pitch_acc;
+
+// 减去零偏
+roll_angle -= roll_offset*0.05f;
+pitch_angle -= pitch_offset*0.05f;
+
+// 俯仰角速度直接使用陀螺仪 Y 轴（已减过零偏，但陀螺仪零偏已在 MPU6050 校准中处理，这里不再减）
+pitch_rate = gy;
 
     // 限幅
     if (roll_angle > MAX_ROLL)  roll_angle = MAX_ROLL;
@@ -110,10 +117,12 @@ static void attitude_update(void) {
     if (pitch_angle > MAX_PITCH) pitch_angle = MAX_PITCH;
     if (pitch_angle < -MAX_PITCH) pitch_angle = -MAX_PITCH;
 
-    ESP_LOGI(TAG, "Attitude update: roll=%.2f, pitch=%.2f, pitch_rate=%.2f, yaw_rate=%.2f",
-             roll_angle, pitch_angle, pitch_rate, current_yaw_rate);
 }
-
+void attitude_set_zero_offset(float roll_off, float pitch_off) {
+    roll_offset = roll_off;
+    pitch_offset = pitch_off;
+    ESP_LOGI(TAG, "Zero offset set: roll=%.2f, pitch=%.2f", roll_offset, pitch_offset);
+}
 void attitude_init(void) {
     mpu6050_calibrate_gyro();
     vTaskDelay(pdMS_TO_TICKS(50));
@@ -149,6 +158,7 @@ void attitude_stabilize_with_speed(float target_linear_speed, float target_angul
 
     // ========== 2. 速度外环（PI）→ 期望俯仰角 ==========
     float pitch_setpoint = pid_update(&pid_speed, target_linear_speed, current_linear, dt, reset_integral);
+    
     // 限制期望俯仰角范围
     if (pitch_setpoint > max_pitch_cmd) pitch_setpoint = max_pitch_cmd;
     if (pitch_setpoint < -max_pitch_cmd) pitch_setpoint = -max_pitch_cmd;
@@ -173,23 +183,26 @@ void attitude_stabilize_with_speed(float target_linear_speed, float target_angul
     float right = pitch_corr + diff_setpoint;
 
     // 安全保护：实际俯仰角过大时降低输出，防止侧翻
-    if (fabsf(pitch_angle) > 25.0f) {
+    if (fabsf(pitch_angle) > 40.0f) {
         left  *= 0.5f;
         right *= 0.5f;
     }
     // 滚转角过大时紧急停止
-    if (fabsf(roll_angle) > 35.0f) {
+    if (fabsf(roll_angle) > 40.0f) {
         left = 0.0f;
         right = 0.0f;
     }
 
     *left_out = fmaxf(-100.0f, fminf(100.0f, left));
     *right_out = fmaxf(-100.0f, fminf(100.0f, right));
-
-    ESP_LOGD(TAG, "v_tgt=%.2f, v_cur=%.2f, pitch_set=%.2f, pitch_cur=%.2f, pitch_corr=%.2f, diff=%.2f",
-             target_linear_speed, current_linear, pitch_setpoint, pitch_angle, pitch_corr, diff_setpoint);
+static int ct=0;
+if(ct++ % 20 == 0) {  // 每10次打印一次日志
+ESP_LOGI(TAG, "Speed loop: target=%.2f, current=%.2f, error=%.2f, pitch_setpoint=%.2f",
+         target_linear_speed, current_linear, target_linear_speed - current_linear, pitch_setpoint);
+ESP_LOGI(TAG, "left_speed=%.2f, right_speed=%.2f, yaw_rate=%.2f", current_left_speed, current_right_speed, current_yaw_rate);
+ESP_LOGI(TAG, "Motor outs: left=%.1f%%, right=%.1f%%, dt=%.3f", *left_out, *right_out, dt);
 }
-
+                                   }
 // ========== 参数设置接口 ==========
 void attitude_set_roll_kp(float kp) { /* 滚转未使用，留空 */ }
 void attitude_set_roll_kd(float kd) { /* 滚转未使用 */ }
@@ -199,7 +212,6 @@ void attitude_set_speed_pid(float kp, float ki, float kd) {
     pid_speed.kp = kp;
     pid_speed.ki = ki;
     pid_speed.kd = kd;  // 通常速度环只用PI，kd置0
-    ESP_LOGI(TAG, "Speed PID: KP=%.2f, KI=%.2f, KD=%.2f", kp, ki, kd);
 }
 void attitude_set_yaw_rate_pid(float kp, float ki, float kd) {
     pid_yaw_rate.kp = kp;

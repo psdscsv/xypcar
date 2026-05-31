@@ -41,7 +41,7 @@ extern "C" {
     void attitude_set_yaw_rate_pid(float kp, float ki, float kd); // 偏航角速度外环 PID
     void attitude_set_max_pitch(float max_pitch_deg);             // 设置最大期望俯仰角（度）
     void attitude_clean_pid(void);
-
+void attitude_set_zero_offset(float roll_off, float pitch_off);
 #ifdef __cplusplus
 }
 #endif
