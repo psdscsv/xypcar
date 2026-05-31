@@ -5,8 +5,7 @@
 #include <stdbool.h>
 
 #ifdef __cplusplus
-extern "C"
-{
+extern "C" {
 #endif
 
     /**
@@ -21,7 +20,7 @@ extern "C"
     void attitude_get_yaw_rate(float *yaw_rate);
 
     /**
-     * @brief 姿态与速度/角速度稳定控制（级联控制，推荐使用）
+     * @brief 姿态与速度/角速度稳定控制（级联控制）
      * @param target_linear_speed   目标线速度 (m/s)
      * @param target_angular_rate   目标转向角速度 (度/秒，正右转)
      * @param current_left_speed    当前左轮线速度 (m/s)
@@ -33,15 +32,14 @@ extern "C"
                                        float current_left_speed, float current_right_speed,
                                        float *left_out, float *right_out);
 
-    /**
-     * @brief 动态参数设置（用于 BLE/Web 调参）
-     */
+    // 动态参数设置（用于 BLE/Web 调参）
     void attitude_set_roll_kp(float kp);
     void attitude_set_pitch_kp(float kp);
     void attitude_set_roll_kd(float kd);
     void attitude_set_pitch_kd(float kd);
-    void attitude_set_speed_pid(float kp, float ki, float kd);    // 线速度外环
-    void attitude_set_yaw_rate_pid(float kp, float ki, float kd); // 角速度外环
+    void attitude_set_speed_pid(float kp, float ki, float kd);    // 线速度外环 PID
+    void attitude_set_yaw_rate_pid(float kp, float ki, float kd); // 偏航角速度外环 PID
+    void attitude_set_max_pitch(float max_pitch_deg);             // 设置最大期望俯仰角（度）
     void attitude_clean_pid(void);
 
 #ifdef __cplusplus

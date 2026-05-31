@@ -119,17 +119,14 @@ bool encoder_init(void)
     return true;
 }
 
-void encoder_get_pulse(int *left, int *right)
-{
+void encoder_get_pulse(int *left, int *right) {
     int left_val, right_val;
     portENTER_CRITICAL(&s_mux);
     left_val = s_left_pulse;
     right_val = s_right_pulse;
     portEXIT_CRITICAL(&s_mux);
-    if (left)
-        *left = left_val;
-    if (right)
-        *right = right_val;
+    if (left) *left = left_val;
+    if (right) *right = -right_val;   // 强制右轮符号与左轮一致
 }
 
 void encoder_get_speed(float *left_speed_ms, float *right_speed_ms)
