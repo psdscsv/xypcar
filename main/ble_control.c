@@ -40,33 +40,28 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
 // ========== 数据包解析（直接提取原始值） ==========
 static bool parse_control_packet(const uint8_t *data, size_t len,
                                  int16_t *speed, int16_t *turn, int16_t *stop,
-                                 float *kp_roll, float *turn_gain,
-                                 float *kp_pitch, float *speed_pitch_gain)
+                                 float *turn_gain,
+                                 float *speed_kp, float *speed_ki, float *speed_kd)
 {
-    if (len != PKG_TOTAL_LEN)
-        return false;
-    if (data[0] != PKG_HEADER)
-        return false;
-    if (data[PKG_TOTAL_LEN - 1] != PKG_FOOTER)
-        return false;
+    if (len != PKG_TOTAL_LEN) return false;
+    if (data[0] != PKG_HEADER) return false;
+    if (data[PKG_TOTAL_LEN - 1] != PKG_FOOTER) return false;
 
     *speed = (int16_t)(data[1] | (data[2] << 8));
-    *turn = (int16_t)(data[3] | (data[4] << 8));
-    *stop = (int16_t)(data[5] | (data[6] << 8));
+    *turn  = (int16_t)(data[3] | (data[4] << 8));
+    *stop  = (int16_t)(data[5] | (data[6] << 8));
 
-    memcpy(kp_roll, &data[7], 4);
-    memcpy(turn_gain, &data[11], 4);
-    memcpy(kp_pitch, &data[15], 4);
-    memcpy(speed_pitch_gain, &data[19], 4);
+    memcpy(turn_gain, &data[7], 4);
+    memcpy(speed_kp,  &data[11], 4);
+    memcpy(speed_ki,  &data[15], 4);
+    memcpy(speed_kd,  &data[19], 4);
 
-    // 校验和
+    // 校验和：字节1 ~ 22
     uint8_t calc_checksum = 0;
-    for (int i = 1; i < PKG_TOTAL_LEN - 2; i++)
-    {
+    for (int i = 1; i <= 22; i++) {
         calc_checksum += data[i];
     }
-    if (calc_checksum != data[PKG_TOTAL_LEN - 2])
-    {
+    if (calc_checksum != data[23]) {
         ESP_LOGW(TAG, "Checksum mismatch");
         return false;
     }
@@ -114,23 +109,21 @@ static void handle_control_write(esp_ble_gatts_cb_param_t *param)
         }
 
         int16_t sp, tr, st;
-        float kp_r, turn_g, kp_p, sp_gain;
-        if (parse_control_packet(rx_buffer, PKG_TOTAL_LEN, &sp, &tr, &st,
-                                 &kp_r, &turn_g, &kp_p, &sp_gain))
-        {
-            car_control_params_t params = {
-                .stop = st,
-                .target_speed = (float)sp,
-                .target_turn = (float)tr,
-                .kp_roll = kp_r,
-                .kp_pitch = kp_p,
-                .speed_pitch_gain = sp_gain,
-                .turn_gain = turn_g,
-            };
-            car_control_update_params(&params);
-
-            // ESP_LOGI(TAG, "Raw: spd=%d, turn=%d, stop=%d, kpR=%.2f, kpP=%.2f, spGain=%.2f, turnGain=%.2f",sp, tr, st, kp_r, kp_p, sp_gain, turn_g);
-        }
+        float turn_g, kp, ki, kd;
+    if (parse_control_packet(rx_buffer, PKG_TOTAL_LEN, &sp, &tr, &st,
+                             &turn_g, &kp, &ki, &kd))
+    {
+        car_control_params_t params = {
+            .stop = st,
+            .target_speed = (float)sp,
+            .target_turn = (float)tr,
+            .turn_gain = turn_g,
+            .speed_pid_kp = kp,
+            .speed_pid_ki = ki,
+            .speed_pid_kd = kd,
+        };
+        car_control_update_params(&params);
+    }
         else
         {
             ESP_LOGW(TAG, "Packet parse failed");

@@ -1,7 +1,6 @@
 // car_control.c
 #include "car_control.h"
 #include "motor_control.h"
-#include "attitude_control.h"
 #include "encoder.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -11,118 +10,133 @@
 
 static const char *TAG = "CarCtrl";
 
-// 共享数据
 static car_control_params_t s_params = {
+    .stop = 1,
     .target_speed = 0,
     .target_turn = 0,
-    .kp_roll = 2.0f,
-    .kp_pitch = 2.5f,
     .turn_gain = 0.5f,
-    .max_linear_speed = 2.0f, // 最大线速度 m/s（需标定）
-    .speed_pid_kp = 1.8f,
-    .speed_pid_ki = 0.4f,
-    .speed_pid_kd = 0.1f,
+    .speed_pid_kp = 1.2f,
+    .speed_pid_ki = 0.2f,
+    .speed_pid_kd = 0.05f,
 };
 
 static SemaphoreHandle_t s_params_mutex = NULL;
 
-#define CONTROL_PERIOD_MS 20 // 20ms 控制周期
+typedef struct {
+    float kp, ki, kd;
+    float integral;
+    float prev_error;
+} SpeedPID_t;
 
-// 控制任务
-static void control_task(void *pvParameters)
-{
+static SpeedPID_t s_speed_pid = {0};
+#define CONTROL_PERIOD_MS 20
+
+static float speed_pid_update(SpeedPID_t *pid, float setpoint, float measurement, float dt, bool reset) {
+    float error = setpoint - measurement;
+    if (reset) {
+        pid->integral = 0.0f;
+    } else {
+        pid->integral += error * dt;
+        if (pid->integral > 100.0f) pid->integral = 100.0f;
+        if (pid->integral < -100.0f) pid->integral = -100.0f;
+    }
+    float derivative = (error - pid->prev_error) / dt;
+    pid->prev_error = error;
+    float output = pid->kp * error + pid->ki * pid->integral + pid->kd * derivative;
+    if (output > 100.0f) output = 100.0f;
+    if (output < -100.0f) output = -100.0f;
+    return output;
+}
+
+static void control_task(void *pvParameters) {
     car_control_params_t params;
-    float left_out, right_out;
     float left_speed, right_speed;
-    float target_speed_ms; // 目标线速度 (m/s)
+    float target_linear_speed_ms;
+    float base_output, left_out, right_out;
     TickType_t last_wake = xTaskGetTickCount();
+    uint32_t last_time_ms = 0;
 
-    while (1)
-    {
-        // 获取当前控制参数（含目标速度和转向）
+    while (1) {
         car_control_get_params(&params);
 
-        if (params.stop)
-        {
+        if (params.stop) {
             motor_set_speed(0, 0);
-            attitude_clean_pid();
+            s_speed_pid.integral = 0;
+            s_speed_pid.prev_error = 0;
             vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(CONTROL_PERIOD_MS));
             continue;
         }
 
-        // 读取编码器实际速度
         encoder_get_speed(&left_speed, &right_speed);
+        float current_linear = (left_speed + right_speed) * 0.5f;
+        target_linear_speed_ms = params.target_speed * 0.01f;
 
-        // 将目标速度（-100~100）映射为线速度 (m/s)
-        target_speed_ms = params.target_speed / 100.0f * params.max_linear_speed;
+        uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        float dt = (now_ms - last_time_ms) / 1000.0f;
+        if (dt <= 0.0f || dt > 0.05f) dt = 0.02f;
+        last_time_ms = now_ms;
 
-        // 应用转向增益（灵敏度调节）
-        float target_turn = params.target_turn * params.turn_gain;
-        if (target_turn > 100.0f)
-            target_turn = 100.0f;
-        if (target_turn < -100.0f)
-            target_turn = -100.0f;
-        target_speed_ms = params.target_speed / 100.0f * params.max_linear_speed;
-        float target_angular_rate = params.target_turn / 100.0f * params.max_angular_speed; // 新增
-                                                                                            // 姿态与速度级联控制
-        attitude_stabilize_with_speed(target_speed_ms, target_angular_rate,
-                                      left_speed, right_speed,
-                                      &left_out, &right_out);
+        bool reset_int = (fabsf(params.target_speed) < 1.0f && fabsf(params.target_turn) < 1.0f);
+        base_output = speed_pid_update(&s_speed_pid, target_linear_speed_ms, current_linear, dt, reset_int);
 
-        // 输出到电机
+        float diff = params.target_turn * params.turn_gain;
+        if (diff > 100.0f) diff = 100.0f;
+        if (diff < -100.0f) diff = -100.0f;
+
+        left_out = base_output - diff;
+        right_out = base_output + diff;
+
+        if (left_out > 100.0f) left_out = 100.0f;
+        if (left_out < -100.0f) left_out = -100.0f;
+        if (right_out > 100.0f) right_out = 100.0f;
+        if (right_out < -100.0f) right_out = -100.0f;
+
         motor_set_speed(left_out, right_out);
+
+        ESP_LOGD(TAG, "Tgt=%.2fm/s Cur=%.2f Base=%.1f L=%.1f R=%.1f",
+                 target_linear_speed_ms, current_linear, base_output, left_out, right_out);
 
         vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(CONTROL_PERIOD_MS));
     }
 }
 
-void car_control_init(void)
-{
+void car_control_init(void) {
     s_params_mutex = xSemaphoreCreateMutex();
-    if (s_params_mutex == NULL)
-    {
+    if (s_params_mutex == NULL) {
         ESP_LOGE(TAG, "Failed to create mutex");
         return;
     }
-    s_params.max_angular_speed = 30.0f; // 对应100%目标转向的角速度(°/s)，需根据实际情况调整
-    s_params.stop = 1;
-    // 将初始 PID 参数设置到姿态控制模块
-    attitude_set_roll_kp(s_params.kp_roll);
-    attitude_set_pitch_kp(s_params.kp_pitch);
-    attitude_set_speed_pid(s_params.speed_pid_kp, s_params.speed_pid_ki, s_params.speed_pid_kd);
 
-    // 创建控制任务
+    s_speed_pid.kp = s_params.speed_pid_kp;
+    s_speed_pid.ki = s_params.speed_pid_ki;
+    s_speed_pid.kd = s_params.speed_pid_kd;
+    s_speed_pid.integral = 0;
+    s_speed_pid.prev_error = 0;
+
     xTaskCreate(control_task, "car_ctrl", 4096, NULL, 5, NULL);
-    ESP_LOGI(TAG, "Car control module initialized");
+    ESP_LOGI(TAG, "Car control initialized (pure speed control)");
 }
 
-void car_control_update_params(const car_control_params_t *params)
-{
-    if (params == NULL || s_params_mutex == NULL)
-        return;
+void car_control_update_params(const car_control_params_t *params) {
+    if (params == NULL || s_params_mutex == NULL) return;
 
     xSemaphoreTake(s_params_mutex, portMAX_DELAY);
     s_params = *params;
     xSemaphoreGive(s_params_mutex);
 
-    // 更新姿态控制模块中的动态参数
-    attitude_set_roll_kp(params->kp_roll);
-    attitude_set_pitch_kp(params->kp_pitch);
-    attitude_set_speed_pid(params->speed_pid_kp, params->speed_pid_ki, params->speed_pid_kd);
+    // 更新 PID 运行参数
+    s_speed_pid.kp = params->speed_pid_kp;
+    s_speed_pid.ki = params->speed_pid_ki;
+    s_speed_pid.kd = params->speed_pid_kd;
 
-    ESP_LOGD(TAG, "Params updated: spd=%.1f, turn=%.1f, kpR=%.2f, kpP=%.2f, spKp=%.2f, spKi=%.2f, maxSpd=%.2f",
-             params->target_speed, params->target_turn,
-             params->kp_roll, params->kp_pitch,
-             params->speed_pid_kp, params->speed_pid_ki,
-             params->max_linear_speed);
+    ESP_LOGI(TAG, "Params updated: speed=%.1f(0.01m/s), turn=%.1f, turn_gain=%.2f, PID_KP=%.2f, KI=%.2f, KD=%.2f",
+             params->target_speed, params->target_turn, params->turn_gain,
+             params->speed_pid_kp, params->speed_pid_ki, params->speed_pid_kd);
 }
 
-void car_control_get_params(car_control_params_t *params)
-{
-    if (params == NULL)
-        return;
-    if (s_params_mutex == NULL)
-    {
+void car_control_get_params(car_control_params_t *params) {
+    if (params == NULL) return;
+    if (s_params_mutex == NULL) {
         memset(params, 0, sizeof(*params));
         return;
     }
