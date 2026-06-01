@@ -42,6 +42,7 @@ extern "C" {
     void attitude_set_max_pitch(float max_pitch_deg);             // 设置最大期望俯仰角（度）
     void attitude_clean_pid(void);
 void attitude_set_zero_offset(float roll_off, float pitch_off);
+void calibrate_zero_offset(void);
 #ifdef __cplusplus
 }
 #endif

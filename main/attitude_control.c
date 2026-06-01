@@ -17,8 +17,8 @@ static const char *TAG = "AttCtrl";
 #define PITCH_D_DEFAULT -0.1f
 
 // 线速度外环 PI 默认参数
-#define SPEED_KP_DEFAULT 1.0f
-#define SPEED_KI_DEFAULT 0.1f
+#define SPEED_KP_DEFAULT -0.5f
+#define SPEED_KI_DEFAULT 0.0f
 
 // 偏航角速度外环 P 默认参数
 #define YAW_RATE_KP_DEFAULT 0.5f
@@ -104,10 +104,6 @@ static void attitude_update(void) {
 roll_angle  = FILTER_ALPHA * gyro_roll_new  + (1.0f - FILTER_ALPHA) * roll_acc;
 pitch_angle = FILTER_ALPHA * gyro_pitch_new + (1.0f - FILTER_ALPHA) * pitch_acc;
 
-// 减去零偏
-roll_angle -= roll_offset*0.05f;
-pitch_angle -= pitch_offset*0.05f;
-
 // 俯仰角速度直接使用陀螺仪 Y 轴（已减过零偏，但陀螺仪零偏已在 MPU6050 校准中处理，这里不再减）
 pitch_rate = gy;
 
@@ -117,6 +113,29 @@ pitch_rate = gy;
     if (pitch_angle > MAX_PITCH) pitch_angle = MAX_PITCH;
     if (pitch_angle < -MAX_PITCH) pitch_angle = -MAX_PITCH;
 
+}
+void calibrate_zero_offset(void) {
+// 零位校准相关
+#define ZERO_CALIB_STABLE_THRESHOLD 0.5f   // 角度变化小于0.5度认为稳定
+#define ZERO_CALIB_SAMPLE_COUNT   50       // 需要连续稳定多少次
+#define ZERO_CALIB_SAMPLE_INTERVAL_MS 20   // 每次采样间隔(ms)    
+    static float last_roll = 0.0f, last_pitch = 0.0f;
+    static int stable_count = 0;
+    attitude_update();
+    if(fabsf(last_roll-roll_angle) > ZERO_CALIB_STABLE_THRESHOLD||fabsf(last_pitch-pitch_angle) > ZERO_CALIB_STABLE_THRESHOLD) {
+        last_roll = roll_angle;
+        last_pitch = pitch_angle;
+        stable_count = 0; // 不稳定，重置计数
+        ESP_LOGI(TAG, "Not stable for zero calib: roll=%.2f, pitch=%.2f", roll_angle, pitch_angle);
+    } else {
+        stable_count++;
+        if(stable_count >= ZERO_CALIB_SAMPLE_COUNT) {
+            // 稳定足够次数，进行校准
+            attitude_set_zero_offset(roll_angle, pitch_angle);
+            ESP_LOGI(TAG, "Zero calibrated: roll=%.2f, pitch=%.2f", roll_angle, pitch_angle);
+            stable_count = 0; // 重置计数，等待下次校准
+        }
+    }
 }
 void attitude_set_zero_offset(float roll_off, float pitch_off) {
     roll_offset = roll_off;
@@ -143,6 +162,8 @@ void attitude_stabilize_with_speed(float target_linear_speed, float target_angul
                                    float *left_out, float *right_out) {
     // 1. 更新姿态（互补滤波）
     attitude_update();
+    float offset_roll = roll_angle - roll_offset;
+    float offset_pitch = pitch_angle - pitch_offset;
 
     float current_linear = (current_left_speed + current_right_speed) * 0.5f;
 
@@ -171,7 +192,7 @@ void attitude_stabilize_with_speed(float target_linear_speed, float target_angul
 
     // ========== 4. 姿态内环（PD）→ 同向力矩 ==========
     // 注意：对于俯仰角，微分项使用负的角速度（阻尼）
-    float pitch_error = pitch_setpoint - pitch_angle;
+    float pitch_error = pitch_setpoint - offset_pitch;//在这里进行0偏补偿
     float pitch_corr = pid_pitch.kp * pitch_error - pid_pitch.kd * pitch_rate;
     // 限幅
     const float MAX_PITCH_OUT = 100.0f;
@@ -183,12 +204,12 @@ void attitude_stabilize_with_speed(float target_linear_speed, float target_angul
     float right = pitch_corr + diff_setpoint;
 
     // 安全保护：实际俯仰角过大时降低输出，防止侧翻
-    if (fabsf(pitch_angle) > 40.0f) {
-        left  *= 0.5f;
-        right *= 0.5f;
+    if (fabsf(offset_pitch) > 40.0f) {
+        //left  *= 0.5f;
+        //right *= 0.5f;
     }
     // 滚转角过大时紧急停止
-    if (fabsf(roll_angle) > 40.0f) {
+    if (fabsf(offset_roll) > 40.0f) {
         left = 0.0f;
         right = 0.0f;
     }
@@ -197,8 +218,8 @@ void attitude_stabilize_with_speed(float target_linear_speed, float target_angul
     *right_out = fmaxf(-100.0f, fminf(100.0f, right));
 static int ct=0;
 if(ct++ % 20 == 0) {  // 每10次打印一次日志
-ESP_LOGI(TAG, "Speed loop: target=%.2f, current=%.2f, error=%.2f, pitch_setpoint=%.2f",
-         target_linear_speed, current_linear, target_linear_speed - current_linear, pitch_setpoint);
+ESP_LOGI(TAG, "Speed loop: target=%.2f, current=%.2f, error=%.2f, offset_pitch=%.2f",
+         target_linear_speed, current_linear, target_linear_speed - current_linear, offset_pitch);
 ESP_LOGI(TAG, "left_speed=%.2f, right_speed=%.2f, yaw_rate=%.2f", current_left_speed, current_right_speed, current_yaw_rate);
 ESP_LOGI(TAG, "Motor outs: left=%.1f%%, right=%.1f%%, dt=%.3f", *left_out, *right_out, dt);
 }
@@ -209,9 +230,9 @@ void attitude_set_roll_kd(float kd) { /* 滚转未使用 */ }
 void attitude_set_pitch_kp(float kp) { pid_pitch.kp = kp; ESP_LOGI(TAG, "Pitch KP=%.2f", kp); }
 void attitude_set_pitch_kd(float kd) { pid_pitch.kd = kd; ESP_LOGI(TAG, "Pitch KD=%.2f", kd); }
 void attitude_set_speed_pid(float kp, float ki, float kd) {
-    pid_speed.kp = kp;
-    pid_speed.ki = ki;
-    pid_speed.kd = kd;  // 通常速度环只用PI，kd置0
+    pid_yaw_rate.kp = kp;
+    pid_pitch.kp = ki;
+    pid_pitch.kd = kd;  // 通常速度环只用PI，kd置0
 }
 void attitude_set_yaw_rate_pid(float kp, float ki, float kd) {
     pid_yaw_rate.kp = kp;
@@ -220,7 +241,7 @@ void attitude_set_yaw_rate_pid(float kp, float ki, float kd) {
     ESP_LOGI(TAG, "Yaw rate PID: KP=%.2f, KI=%.2f, KD=%.2f", kp, ki, kd);
 }
 void attitude_set_max_pitch(float max_pitch_deg) {
-    if (max_pitch_deg > 0 && max_pitch_deg <= 30.0f) {
+    if (max_pitch_deg > 0 && max_pitch_deg <= 90.0f) {
         max_pitch_cmd = max_pitch_deg;
         ESP_LOGI(TAG, "Max pitch set to %.1f deg", max_pitch_cmd);
     }
