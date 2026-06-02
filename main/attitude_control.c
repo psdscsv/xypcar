@@ -13,12 +13,13 @@ static const char *TAG = "AttCtrl";
 #define MAX_PITCH    30.0f   // 俯仰角限幅（仅用于监控）
 
 // 姿态内环 PD 默认参数
-#define PITCH_P_DEFAULT 2.5f
+#define PITCH_P_DEFAULT -2.5f//正负号是反的，所以这部分都是负数
 #define PITCH_D_DEFAULT -0.1f
 
 // 线速度外环 PI 默认参数
-#define SPEED_KP_DEFAULT -0.5f
-#define SPEED_KI_DEFAULT 0.0f
+#define SPEED_KP_DEFAULT 0.5f   // 原0.5f 降低
+#define SPEED_KI_DEFAULT 0.05f  // 原0.1f 降低
+#define SPEED_KD_DEFAULT 0.02f  // 新增微分项
 
 // 偏航角速度外环 P 默认参数
 #define YAW_RATE_KP_DEFAULT 0.5f
@@ -44,7 +45,7 @@ typedef struct {
 } PID_t;
 
 static PID_t pid_pitch = {PITCH_P_DEFAULT, 0.0f, PITCH_D_DEFAULT, 0.0f, 0.0f};
-static PID_t pid_speed = {SPEED_KP_DEFAULT, SPEED_KI_DEFAULT, 0.0f, 0.0f, 0.0f};
+static PID_t pid_speed = {SPEED_KP_DEFAULT, SPEED_KI_DEFAULT,SPEED_KD_DEFAULT, 0.0f, 0.0f};
 static PID_t pid_yaw_rate = {YAW_RATE_KP_DEFAULT, 0.0f, 0.0f, 0.0f, 0.0f};
 
 static void pid_init(PID_t *pid, float kp, float ki, float kd) {
@@ -229,10 +230,21 @@ void attitude_set_roll_kp(float kp) { /* 滚转未使用，留空 */ }
 void attitude_set_roll_kd(float kd) { /* 滚转未使用 */ }
 void attitude_set_pitch_kp(float kp) { pid_pitch.kp = kp; ESP_LOGI(TAG, "Pitch KP=%.2f", kp); }
 void attitude_set_pitch_kd(float kd) { pid_pitch.kd = kd; ESP_LOGI(TAG, "Pitch KD=%.2f", kd); }
-void attitude_set_speed_pid(float kp, float ki, float kd) {
+void attitude_set_speed_pid(float flag,float kp, float ki, float kd) {
+    if(flag==1){
+    pid_speed.kp = kp;
+    pid_speed.ki = ki;
+    pid_speed.kd = kd;     
+    }else if(flag==2){
+    pid_pitch.kp = kp;
+    pid_pitch.ki = ki;
+    pid_pitch.kd = kd;   
+    }else if(flag==3){
     pid_yaw_rate.kp = kp;
-    pid_pitch.kp = ki;
-    pid_pitch.kd = kd;  // 通常速度环只用PI，kd置0
+    pid_yaw_rate.ki = ki;
+    pid_yaw_rate.kd = kd;   
+    }
+
 }
 void attitude_set_yaw_rate_pid(float kp, float ki, float kd) {
     pid_yaw_rate.kp = kp;

@@ -79,7 +79,7 @@ void car_control_init(void) {
     }
 
     // 将 BLE 传入的 PID 参数同步到姿态控制模块（注意量纲已变，需要重新整定）
-    attitude_set_speed_pid(s_params.speed_pid_kp, s_params.speed_pid_ki, s_params.speed_pid_kd);
+    attitude_set_speed_pid(s_params.turn_gain,s_params.speed_pid_kp, s_params.speed_pid_ki, s_params.speed_pid_kd);
     attitude_set_yaw_rate_pid(0.5f, 0.0f, 0.0f);
     attitude_set_max_pitch(45.0f);
 
@@ -94,11 +94,7 @@ void car_control_update_params(const car_control_params_t *params) {
     s_params = *params;
     xSemaphoreGive(s_params_mutex);
 
-    attitude_set_speed_pid(params->speed_pid_kp, params->speed_pid_ki, params->speed_pid_kd);
-    float yaw_kp = params->turn_gain * 1.0f;
-    if (yaw_kp < 0.1f) yaw_kp = 0.1f;
-    if (yaw_kp > 2.0f) yaw_kp = 2.0f;
-    attitude_set_yaw_rate_pid(yaw_kp, 0.0f, 0.0f);
+    attitude_set_speed_pid(params->turn_gain ,params->speed_pid_kp, params->speed_pid_ki, params->speed_pid_kd);
 
     ESP_LOGI(TAG, "Params updated: speed=%.1f pps, turn=%.1f, turn_gain=%.2f, PID_KP=%.4f, KI=%.4f, KD=%.2f",
              params->target_speed, params->target_turn, params->turn_gain,
