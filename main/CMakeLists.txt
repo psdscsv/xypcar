@@ -10,6 +10,7 @@ idf_component_register(SRCS "attitude_control.c"
                        PRIV_REQUIRES spi_flash
                        INCLUDE_DIRS ""
                        REQUIRES
+                        bt
                         esp_wifi
                         nvs_flash
                         esp_netif
@@ -17,5 +18,5 @@ idf_component_register(SRCS "attitude_control.c"
                         esp_event
                         esp_http_server
                         driver
-                        bt
+                        
                         )

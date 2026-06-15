@@ -8,11 +8,11 @@
 static const char *TAG = "MOTOR";
 
 // ========== 引脚定义 ==========
-#define M1_IN1_GPIO 2
-#define M1_IN2_GPIO 3
-#define M2_IN3_GPIO 4
-#define M2_IN4_GPIO 5
-#define DRV8833_NSLEEP 1 // 使能引脚
+#define M1_IN1_GPIO 4
+#define M1_IN2_GPIO 5
+#define M2_IN3_GPIO 6
+#define M2_IN4_GPIO 7
+#define DRV8833_NSLEEP 3
 
 // ========== LEDC 配置 ==========
 #define LEDC_TIMER LEDC_TIMER_0

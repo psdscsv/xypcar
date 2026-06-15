@@ -10,8 +10,8 @@ static const char *TAG = "MPU6050";
 
 // I2C 引脚配置
 #define I2C_MASTER_NUM I2C_NUM_0
-#define I2C_MASTER_SDA_IO 6
-#define I2C_MASTER_SCL_IO 7
+#define I2C_MASTER_SDA_IO 1
+#define I2C_MASTER_SCL_IO 2
 #define I2C_MASTER_FREQ_HZ 400000 // 400kHz
 #define I2C_MASTER_TX_BUF_DIS 0
 #define I2C_MASTER_RX_BUF_DIS 0

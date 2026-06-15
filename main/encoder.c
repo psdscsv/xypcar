@@ -7,10 +7,10 @@
 static const char *TAG = "Encoder";
 
 // 引脚定义
-#define ENC_LEFT_A_GPIO 8
-#define ENC_LEFT_B_GPIO 9
+#define ENC_LEFT_A_GPIO  8
+#define ENC_LEFT_B_GPIO  9
 #define ENC_RIGHT_A_GPIO 10
-#define ENC_RIGHT_B_GPIO 20
+#define ENC_RIGHT_B_GPIO 11
 
 // 编码器原始PPR（每转脉冲数，未经倍频）
 #define PPR_RAW 69
