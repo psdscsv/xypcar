@@ -104,6 +104,7 @@ void motor_init(void)
 
 void motor_set_speed(float left_percent, float right_percent)
 {
+
     // 限制范围
     if (left_percent > 100.0f)
         left_percent = 100.0f;

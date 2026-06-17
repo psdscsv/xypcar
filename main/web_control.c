@@ -40,7 +40,7 @@ static esp_err_t joystick_api_handler(httpd_req_t *req) {
         httpd_query_key_value(query, "ly", param_ly, sizeof(param_ly));
         httpd_query_key_value(query, "rx", param_rx, sizeof(param_rx));
         ly = atoi(param_ly);
-        rx = atoi(param_rx);
+        rx = -atoi(param_rx);
     }
 
     // 非线性映射（死区15，最小输出20%，曲线指数1.5）
@@ -53,13 +53,13 @@ static esp_err_t joystick_api_handler(httpd_req_t *req) {
 
     // 构建控制参数
     car_control_params_t params = {
-        .stop          = (ly_mapped == 0 && rx_mapped == 0) ? 1 : 0,
+        .stop          = 0,    // 只要有输入就不停止
         .target_speed  = target_speed,
         .target_turn   = target_turn,
-        .turn_gain     = 0.5f,          // 默认转向增益，可在未来通过 Web 调参修改
-        .speed_pid_kp  = 0.5f,          // 默认速度环 P，可根据需要调整
-        .speed_pid_ki  = 0.05f,
-        .speed_pid_kd  = 0.02f,
+        .turn_gain     = 0.0f,
+        .speed_pid_kp  = 0.0f,
+        .speed_pid_ki  = 0.0f,
+        .speed_pid_kd  = 0.0f,
     };
 
     // 更新到小车控制模块

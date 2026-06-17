@@ -15,7 +15,7 @@ static const char *TAG = "Encoder";
 // 编码器原始PPR（每转脉冲数，未经倍频）
 #define PPR_RAW 69
 // 轮子半径（米）
-#define WHEEL_RADIUS 0.066f
+#define WHEEL_RADIUS 0.033f
 #define TWO_PI 6.283185307f
 
 // 全局脉冲计数（中断中修改，使用临界区保护）

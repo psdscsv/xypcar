@@ -115,7 +115,7 @@ static void handle_control_write(esp_ble_gatts_cb_param_t *param)
     {
         car_control_params_t params = {
             .stop = st,
-            .target_speed = -(float)sp,//正负反过来
+            .target_speed = (float)sp,
             .target_turn = -(float)tr,
             .turn_gain = turn_g,
             .speed_pid_kp = kp,

@@ -13,13 +13,12 @@ static const char *TAG = "AttCtrl";
 #define MAX_PITCH    30.0f   // 俯仰角限幅（仅用于监控）
 
 // 姿态内环 PD 默认参数
-#define PITCH_P_DEFAULT -2.5f//正负号是反的，所以这部分都是负数
-#define PITCH_D_DEFAULT -0.1f
+#define PITCH_P_DEFAULT 2.0f
+#define PITCH_D_DEFAULT 0.1f
 
 // 线速度外环 PI 默认参数
-#define SPEED_KP_DEFAULT 0.5f   // 原0.5f 降低
-#define SPEED_KI_DEFAULT 0.05f  // 原0.1f 降低
-#define SPEED_KD_DEFAULT 0.02f  // 新增微分项
+#define SPEED_KP_DEFAULT 0.5f
+#define SPEED_KI_DEFAULT 0.0f  // 原0.1f 降低
 
 // 偏航角速度外环 P 默认参数
 #define YAW_RATE_KP_DEFAULT 0.5f
@@ -45,7 +44,7 @@ typedef struct {
 } PID_t;
 
 static PID_t pid_pitch = {PITCH_P_DEFAULT, 0.0f, PITCH_D_DEFAULT, 0.0f, 0.0f};
-static PID_t pid_speed = {SPEED_KP_DEFAULT, SPEED_KI_DEFAULT,SPEED_KD_DEFAULT, 0.0f, 0.0f};
+static PID_t pid_speed = {SPEED_KP_DEFAULT, SPEED_KI_DEFAULT,0.0f, 0.0f, 0.0f};
 static PID_t pid_yaw_rate = {YAW_RATE_KP_DEFAULT, 0.0f, 0.0f, 0.0f, 0.0f};
 
 static void pid_init(PID_t *pid, float kp, float ki, float kd) {
@@ -127,13 +126,13 @@ void calibrate_zero_offset(void) {
         last_roll = roll_angle;
         last_pitch = pitch_angle;
         stable_count = 0; // 不稳定，重置计数
-        ESP_LOGI(TAG, "Not stable for zero calib: roll=%.2f, pitch=%.2f", roll_angle, pitch_angle);
+        //ESP_LOGI(TAG, "Not stable for zero calib: roll=%.2f, pitch=%.2f", roll_angle, pitch_angle);
     } else {
         stable_count++;
         if(stable_count >= ZERO_CALIB_SAMPLE_COUNT) {
             // 稳定足够次数，进行校准
             attitude_set_zero_offset(roll_angle, pitch_angle);
-            ESP_LOGI(TAG, "Zero calibrated: roll=%.2f, pitch=%.2f", roll_angle, pitch_angle);
+            //ESP_LOGI(TAG, "Zero calibrated: roll=%.2f, pitch=%.2f", roll_angle, pitch_angle);
             stable_count = 0; // 重置计数，等待下次校准
         }
     }
@@ -219,10 +218,9 @@ void attitude_stabilize_with_speed(float target_linear_speed, float target_angul
     *right_out = fmaxf(-100.0f, fminf(100.0f, right));
 static int ct=0;
 if(ct++ % 20 == 0) {  // 每10次打印一次日志
-ESP_LOGI(TAG, "Speed loop: target=%.2f, current=%.2f, error=%.2f, offset_pitch=%.2f",
-         target_linear_speed, current_linear, target_linear_speed - current_linear, offset_pitch);
-ESP_LOGI(TAG, "left_speed=%.2f, right_speed=%.2f, yaw_rate=%.2f", current_left_speed, current_right_speed, current_yaw_rate);
-ESP_LOGI(TAG, "Motor outs: left=%.1f%%, right=%.1f%%, dt=%.3f", *left_out, *right_out, dt);
+ESP_LOGI(TAG, "speed p=%.2f,speed i=%.2f,speed d=%.2f", pid_speed.kp, pid_speed.ki, pid_speed.kd);
+ESP_LOGI(TAG, "pitch p=%.2f,pitch i=%.2f,pitch d=%.2f", pid_pitch.kp, pid_pitch.ki, pid_pitch.kd);
+ESP_LOGI(TAG, "yaw_rate p=%.2f,yaw_rate i=%.2f,yaw_rate d=%.2f", pid_yaw_rate.kp, pid_yaw_rate.ki, pid_yaw_rate.kd);
 }
                                    }
 // ========== 参数设置接口 ==========

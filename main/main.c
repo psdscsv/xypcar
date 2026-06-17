@@ -15,11 +15,11 @@ static const char *TAG = "MAIN";
 void app_main(void) {
     // 1. 硬件初始化
     motor_init();
-    //mpu6050_init();
+    mpu6050_init();
     encoder_init();
     vTaskDelay(pdMS_TO_TICKS(100));
 
-    // 2. 姿态解算（含陀螺仪校准）
+    // 2. 姿态解算（含陀螺仪校准） 
     attitude_init();
 
     // 3. 小车闭环控制任务（速度+姿态）

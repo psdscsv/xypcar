@@ -185,12 +185,13 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
             ESP_LOGI(TAG, "网关: " IPSTR, IP2STR(&event->ip_info.gw));
             ESP_LOGI(TAG, "子网掩码: " IPSTR, IP2STR(&event->ip_info.netmask));
 
-            // 停止AP模式
-            if (s_ap_mode_active)
-            {
-                ESP_LOGI(TAG, "STA连接成功，停止AP模式");
-                wifi_stop_ap();
-            }
+            // 注意：保持AP模式运行，不停止AP
+            // 如果之前有停止代码，将其注释掉
+            // if (s_ap_mode_active)
+            // {
+            //     ESP_LOGI(TAG, "STA连接成功，停止AP模式");
+            //     wifi_stop_ap();
+            // }
 
             xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
             break;
@@ -403,10 +404,13 @@ static bool wifi_try_connect_saved(void)
     return false;
 }
 
-// Web服务器：根目录处理
-static esp_err_t web_root_handler(httpd_req_t *req)
+// 配网页面处理器
+static esp_err_t web_setup_handler(httpd_req_t *req)
 {
-    ESP_LOGI(TAG, "访问Web配置页面");
+    ESP_LOGI(TAG, "访问WiFi配置页面");
+    
+    // 更新WiFi扫描列表
+    //wifi_scan_and_update_list();
 
     // 构建完整的HTML响应
     size_t total_len = strlen(ROOT_HTML_1) + strlen(s_wifi_list_buffer) + strlen(ROOT_HTML_2) + 1;
@@ -428,7 +432,7 @@ static esp_err_t web_root_handler(httpd_req_t *req)
     return ret;
 }
 
-// Web服务器：配置处理
+// 配置处理
 static esp_err_t web_config_handler(httpd_req_t *req)
 {
     ESP_LOGI(TAG, "处理WiFi配置请求");
@@ -566,12 +570,16 @@ static esp_err_t web_config_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-/**
- * @brief 启动Web服务器
- *
- * 启动配置Web服务器用于WiFi配置，端口为WEB_PORT。
- * 如果服务器已启动，则直接返回。
- */
+// 根路径重定向到 /control
+static esp_err_t redirect_to_control(httpd_req_t *req)
+{
+    httpd_resp_set_status(req, "302 Found");
+    httpd_resp_set_hdr(req, "Location", "/control");
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
+// 启动Web服务器
 static void wifi_start_webserver(void)
 {
     if (s_http_server != NULL)
@@ -589,24 +597,35 @@ static void wifi_start_webserver(void)
     config.lru_purge_enable = true;
 
     // URI处理器
-    httpd_uri_t root_uri = {
+    httpd_uri_t redirect_uri = {
         .uri = "/",
         .method = HTTP_GET,
-        .handler = web_root_handler,
-        .user_ctx = NULL};
+        .handler = redirect_to_control,
+        .user_ctx = NULL
+    };
+
+    httpd_uri_t setup_uri = {
+        .uri = "/setup",
+        .method = HTTP_GET,
+        .handler = web_setup_handler,
+        .user_ctx = NULL
+    };
 
     httpd_uri_t config_uri = {
         .uri = "/config",
         .method = HTTP_POST,
         .handler = web_config_handler,
-        .user_ctx = NULL};
+        .user_ctx = NULL
+    };
 
     if (httpd_start(&s_http_server, &config) == ESP_OK)
     {
-        httpd_register_uri_handler(s_http_server, &root_uri);
+        httpd_register_uri_handler(s_http_server, &redirect_uri);
+        httpd_register_uri_handler(s_http_server, &setup_uri);
         httpd_register_uri_handler(s_http_server, &config_uri);
         ESP_LOGI(TAG, "Web服务器启动在端口 %d", WEB_PORT);
-        ESP_LOGI(TAG, "配置页面: http://192.168.4.1");
+        ESP_LOGI(TAG, "根路径重定向到 /control");
+        ESP_LOGI(TAG, "配置页面: http://192.168.4.1/setup");
     }
     else
     {
@@ -614,7 +633,7 @@ static void wifi_start_webserver(void)
     }
 }
 
-// 统一初始化函数
+// 统一初始化函数（始终开启AP模式）
 void wifi_init(void)
 {
     if (s_wifi_initialized)
@@ -677,8 +696,8 @@ void wifi_init(void)
     // 设置WiFi存储模式
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
 
-    // 设置WiFi模式为STA
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    // 设置WiFi模式为AP+STA
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
 
     // 启动WiFi
     ESP_ERROR_CHECK(esp_wifi_start());
@@ -690,35 +709,18 @@ void wifi_init(void)
     // 设置TX功率
     esp_wifi_set_max_tx_power(78); // 19.5dBm
 
-    // 获取当前配置
-    wifi_config_t wifi_config;
-    esp_wifi_get_config(WIFI_IF_STA, &wifi_config);
-
     ESP_LOGI(TAG, "wifi初始化完毕");
 
     s_wifi_initialized = true;
 
-    // 步骤1: 尝试连接保存的WiFi
-    ESP_LOGI(TAG, "步骤1: 尝试连接保存的WiFi...");
-
-    if (wifi_try_connect_saved())
-    {
-        ESP_LOGI(TAG, "WiFi连接成功！");
-        return;
-    }
-
-    // 步骤2: 连接失败，启动AP配网模式
-    ESP_LOGI(TAG, "步骤2: 启动AP配网模式...");
-
-    // 启动AP模式
+    // 直接启动AP模式和Web服务器（不尝试连接保存的WiFi）
+    ESP_LOGI(TAG, "启动AP配网模式...");
     wifi_start_ap();
-
-    // 启动Web服务器
     wifi_start_webserver();
 
     ESP_LOGI(TAG, "AP配网模式已启动");
     ESP_LOGI(TAG, "请连接WiFi: %s", CONFIG_AP_SSID);
-    ESP_LOGI(TAG, "然后访问: http://192.168.4.1");
+    ESP_LOGI(TAG, "然后访问: http://192.168.4.1/control");
 }
 
 // 断开WiFi连接
@@ -825,6 +827,8 @@ void wifi_reconnect(void)
         wifi_start_webserver();
     }
 }
+
+// 获取HTTP服务器句柄
 httpd_handle_t wifi_get_http_server(void)
 {
     return s_http_server;
