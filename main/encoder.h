@@ -35,12 +35,7 @@ extern "C"
      * @note  第一次调用时速度为零，以后每次调用根据两次间隔和脉冲差计算
      */
     void encoder_get_speed(float *left_speed_pps, float *right_speed_pps);
-    /**
-     * @brief 获取左右电机的瞬时转速（以脉冲/秒为单位）
-     * @param left_pps  左电机转速，单位：脉冲/秒
-     * @param right_pps 右电机转速，单位：脉冲/秒
-     */
-    void encoder_get_speed_pps(float *left_pps, float *right_pps);
+
 #ifdef __cplusplus
 }
 #endif

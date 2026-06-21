@@ -13,7 +13,7 @@ static const char *TAG = "Encoder";
 #define ENC_RIGHT_B_GPIO 11
 
 // 编码器原始PPR（每转脉冲数，未经倍频）
-#define PPR_RAW 69
+#define PPR_RAW 110
 // 轮子半径（米）
 #define WHEEL_RADIUS 0.033f
 #define TWO_PI 6.283185307f
@@ -162,18 +162,7 @@ void encoder_get_speed(float *left_speed_ms, float *right_speed_ms)
     s_last_left_pulse = left_pulse;
     s_last_right_pulse = right_pulse;
     s_last_time_ms = now_ms;
-}
-void encoder_get_speed_pps(float *left_pps, float *right_pps) {
-    uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
-    float dt = (now_ms - s_last_time_ms) / 1000.0f;
-    if (dt <= 0.0f || dt > 0.1f) { *left_pps = *right_pps = 0; return; }
-    int left_pulse, right_pulse;
-    encoder_get_pulse(&left_pulse, &right_pulse);
-    float pulses_per_sec_left = (left_pulse - s_last_left_pulse) / dt;
-    float pulses_per_sec_right = (right_pulse - s_last_right_pulse) / dt;
-    *left_pps = pulses_per_sec_left;
-    *right_pps = pulses_per_sec_right;
-    s_last_left_pulse = left_pulse;
-    s_last_right_pulse = right_pulse;
-    s_last_time_ms = now_ms;
+
+    ESP_LOGD(TAG, "left_pulse=%d, right_pulse=%d,",
+             left_pulse, right_pulse);
 }

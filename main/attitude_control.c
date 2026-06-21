@@ -17,10 +17,10 @@ static const char *TAG = "AttCtrl";
 #define PITCH_D_DEFAULT 0.1f
 
 // 线速度外环 PI 默认参数
-#define SPEED_KP_DEFAULT 0.5f
-#define SPEED_KI_DEFAULT 0.0f  // 原0.1f 降低
+#define SPEED_KP_DEFAULT 40.0f
+#define SPEED_KI_DEFAULT 8.0f
 
-// 偏航角速度外环 P 默认参数
+// 偏航角速度外环 P 默认参数x
 #define YAW_RATE_KP_DEFAULT 0.5f
 
 // 最大期望俯仰角（度）
@@ -216,12 +216,7 @@ void attitude_stabilize_with_speed(float target_linear_speed, float target_angul
 
     *left_out = fmaxf(-100.0f, fminf(100.0f, left));
     *right_out = fmaxf(-100.0f, fminf(100.0f, right));
-static int ct=0;
-if(ct++ % 20 == 0) {  // 每10次打印一次日志
-ESP_LOGI(TAG, "speed p=%.2f,speed i=%.2f,speed d=%.2f", pid_speed.kp, pid_speed.ki, pid_speed.kd);
-ESP_LOGI(TAG, "pitch p=%.2f,pitch i=%.2f,pitch d=%.2f", pid_pitch.kp, pid_pitch.ki, pid_pitch.kd);
-ESP_LOGI(TAG, "yaw_rate p=%.2f,yaw_rate i=%.2f,yaw_rate d=%.2f", pid_yaw_rate.kp, pid_yaw_rate.ki, pid_yaw_rate.kd);
-}
+
                                    }
 // ========== 参数设置接口 ==========
 void attitude_set_roll_kp(float kp) { /* 滚转未使用，留空 */ }

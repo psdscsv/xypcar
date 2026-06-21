@@ -29,8 +29,8 @@ static SemaphoreHandle_t s_params_mutex = NULL;
 
 static void control_task(void *pvParameters) {
     car_control_params_t params;
-    float left_pps, right_pps;                 // 单位：脉冲/秒
-    float target_linear_pps;                  // 目标线速度，单位：脉冲/秒
+    float left_spd, right_spd;                 // 单位：米/秒
+    float target_linear_spd;                  // 目标线速度，单位：米/秒
     float target_angular_rate_dps;            // 单位：°/s
     float left_out, right_out;
 
@@ -48,24 +48,23 @@ static void control_task(void *pvParameters) {
             continue;
         }
 
-        // 获取当前轮速（脉冲/秒）
-        // 注意：需要 encoder_get_speed_pps 函数,现在还是使用原来的函数获取线速度
-        encoder_get_speed(&left_pps, &right_pps);
+        // 获取当前轮速（米/秒）
+        encoder_get_speed(&left_spd, &right_spd);
 
-        // 目标速度直接使用 BLE 发送的 target_speed（单位：脉冲/秒）
-        target_linear_pps = params.target_speed;
+        // 目标速度直接使用 BLE 发送的 target_speed（单位：米/秒）
+        target_linear_spd = params.target_speed/50.0f;//最高2.0米/秒
         target_angular_rate_dps = params.target_turn;   // 仍为 °/s
 
-        // 调用级联控制核心（速度外环将使用脉冲/秒作为单位）
-        attitude_stabilize_with_speed(target_linear_pps, target_angular_rate_dps,
-                                      left_pps, right_pps,
+        // 调用级联控制核心
+        attitude_stabilize_with_speed(target_linear_spd, target_angular_rate_dps,
+                                      left_spd, right_spd,
                                       &left_out, &right_out);
 
         motor_set_speed(left_out, right_out);
 
-        ESP_LOGD(TAG, "tgt_pps=%.1f, cur_pps=%.1f, turn=%.1f, left=%.1f%%, right=%.1f%%",
-                 target_linear_pps, (left_pps + right_pps) * 0.5f,
-                 target_angular_rate_dps, left_out, right_out);
+        ESP_LOGI(TAG, "%.1f,%.3f,%.3f",
+                 target_linear_spd, (left_spd + right_spd) * 0.5f,
+                 (left_out+right_out)*0.5f);
 
         vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(CONTROL_PERIOD_MS));
     }
@@ -96,7 +95,7 @@ void car_control_update_params(const car_control_params_t *params) {
 
     attitude_set_speed_pid(params->turn_gain ,params->speed_pid_kp, params->speed_pid_ki, params->speed_pid_kd);
 
-    ESP_LOGI(TAG, "Params updated: speed=%.1f pps, turn=%.1f, turn_gain=%.2f, PID_KP=%.4f, KI=%.4f, KD=%.2f",
+    ESP_LOGD(TAG, "Params updated: speed=%.1f pps, turn=%.1f, turn_gain=%.2f, PID_KP=%.4f, KI=%.4f, KD=%.2f",
              params->target_speed, params->target_turn, params->turn_gain,
              params->speed_pid_kp, params->speed_pid_ki, params->speed_pid_kd);
 }
