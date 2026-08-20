@@ -30,12 +30,12 @@ void app_main(void) {
     //wifi_init();                // 内部会启动 HTTP 服务器（若进入 AP 模式）
     nvs_flash_init();
     // 5. 注册 Web 遥控页面和 API
-    web_control_init();
+    //web_control_init();
 
     // 可选：同时启用 BLE 控制
     ble_control_init();
 
-    ESP_LOGI(TAG, "System ready. Web control: http://192.168.4.1/control");
+    ESP_LOGI(TAG, "System ready.");
 
     while (1) {
         if(ble_control_is_connected())led_rainbow(&board_led_handle, 1000);
