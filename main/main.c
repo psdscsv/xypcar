@@ -40,6 +40,5 @@ void app_main(void) {
     while (1) {
         if(ble_control_is_connected())led_rainbow(&board_led_handle, 1000);
         else led_blink(&board_led_handle, 0, 10, 0, 500, 500, 1); // 红色闪烁表示未连接
-        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }

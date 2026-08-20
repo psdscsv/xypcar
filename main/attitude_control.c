@@ -140,7 +140,14 @@ void calibrate_zero_offset(void) {
 void attitude_set_zero_offset(float roll_off, float pitch_off) {
     roll_offset = roll_off;
     pitch_offset = pitch_off;
-    ESP_LOGI(TAG, "Zero offset set: roll=%.2f, pitch=%.2f", roll_offset, pitch_offset);
+        // 检查 NaN
+    if (isnan(roll_angle) || isnan(pitch_angle)) {
+        ESP_LOGE(TAG, "Zero offset set: roll or pitch is NaN!");
+        led_blink(&board_led_handle, 255, 0, 255, 200, 200, 5); 
+    } else {
+       ESP_LOGI(TAG, "Zero offset set: roll=%.2f, pitch=%.2f", roll_offset, pitch_offset);
+    }
+    
 }
 void attitude_init(void) {
     mpu6050_calibrate_gyro();
@@ -148,14 +155,6 @@ void attitude_init(void) {
     float ax, ay, az, gx, gy, gz;
     mpu6050_read_all(&ax, &ay, &az, &gx, &gy, &gz);
     accel_to_angles(ax, ay, az, &roll_angle, &pitch_angle);
-    
-    // 检查 NaN
-    if (isnan(roll_angle) || isnan(pitch_angle) || ax+ay+az+gx+gy+gz==0) {
-        ESP_LOGE(TAG, "Attitude init: roll or pitch is NaN! ax=%.2f ay=%.2f az=%.2f", ax, ay, az);
-        led_blink(&board_led_handle, 255, 0, 255, 200, 200, 5); // 红色闪烁表示错误
-    } else {
-        ESP_LOGI(TAG, "Attitude init: roll=%.2f, pitch=%.2f", roll_angle, pitch_angle);
-    }
 
     last_time_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
 }

@@ -51,8 +51,8 @@ static void control_task(void *pvParameters) {
         // 获取当前轮速（米/秒）
         encoder_get_speed(&left_spd, &right_spd);
 
-        // 目标速度直接使用 BLE 发送的 target_speed（单位：米/秒）
-        target_linear_spd = params.target_speed/50.0f;//最高2.0米/秒
+        // 目标速度倍率调节
+        target_linear_spd = (params.target_speed/50.0f)*1.0f;
         target_angular_rate_dps = params.target_turn;   // 仍为 °/s
 
         // 调用级联控制核心
