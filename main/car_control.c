@@ -61,10 +61,8 @@ static void control_task(void *pvParameters) {
                                       &left_out, &right_out);
 
         motor_set_speed(left_out, right_out);
-
-        ESP_LOGI(TAG, "%.1f,%.3f,%.3f",
-                 target_linear_spd, (left_spd + right_spd) * 0.5f,
-                 (left_out+right_out)*0.5f);
+        ESP_LOGI(TAG, "Target speed: %.2f m/s, Target turn: %.2f °/s, Left out: %.2f, Right out: %.2f",
+                 target_linear_spd, target_angular_rate_dps, left_out, right_out);
 
         vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(CONTROL_PERIOD_MS));
     }

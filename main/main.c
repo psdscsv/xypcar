@@ -9,7 +9,7 @@
 #include "wifi_manager.h"      // 新增，用于 WiFi 配网
 #include "web_control.h"       // 新增
 #include "ble_control.h"     // 若不需要 BLE 可注释
-
+#include "led_manager.h"
 static const char *TAG = "MAIN";
 
 void app_main(void) {
@@ -17,6 +17,7 @@ void app_main(void) {
     motor_init();
     mpu6050_init();
     encoder_init();
+    board_led_init();
     vTaskDelay(pdMS_TO_TICKS(100));
 
     // 2. 姿态解算（含陀螺仪校准） 
@@ -26,8 +27,8 @@ void app_main(void) {
     car_control_init();
 
     // 4. WiFi 管理（启动 AP 配网或连接保存的 WiFi）
-    wifi_init();                // 内部会启动 HTTP 服务器（若进入 AP 模式）
-
+    //wifi_init();                // 内部会启动 HTTP 服务器（若进入 AP 模式）
+    nvs_flash_init();
     // 5. 注册 Web 遥控页面和 API
     web_control_init();
 
@@ -37,6 +38,8 @@ void app_main(void) {
     ESP_LOGI(TAG, "System ready. Web control: http://192.168.4.1/control");
 
     while (1) {
+        if(ble_control_is_connected())led_rainbow(&board_led_handle, 1000);
+        else led_blink(&board_led_handle, 0, 10, 0, 500, 500, 1); // 红色闪烁表示未连接
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }

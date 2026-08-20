@@ -30,8 +30,10 @@ static size_t rx_index = 0;
 
 static uint16_t gatts_service_handle = 0;
 static uint16_t gatts_control_char_handle = 0;
+static uint16_t gatts_control_desc_handle = 0;    // CCC 描述符句柄
 static uint16_t gatts_conn_id = 0;
 static bool is_connected = false;
+static esp_gatt_if_t s_gatts_if = 0;              // 保存 GATT 接口号，用于发送通知
 
 // 函数声明
 static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param);
@@ -110,20 +112,20 @@ static void handle_control_write(esp_ble_gatts_cb_param_t *param)
 
         int16_t sp, tr, st;
         float turn_g, kp, ki, kd;
-    if (parse_control_packet(rx_buffer, PKG_TOTAL_LEN, &sp, &tr, &st,
-                             &turn_g, &kp, &ki, &kd))
-    {
-        car_control_params_t params = {
-            .stop = st,
-            .target_speed = (float)sp,
-            .target_turn = -(float)tr,
-            .turn_gain = turn_g,
-            .speed_pid_kp = kp,
-            .speed_pid_ki = ki,
-            .speed_pid_kd = kd,
-        };
-        car_control_update_params(&params);
-    }
+        if (parse_control_packet(rx_buffer, PKG_TOTAL_LEN, &sp, &tr, &st,
+                                 &turn_g, &kp, &ki, &kd))
+        {
+            car_control_params_t params = {
+                .stop = st,
+                .target_speed = (float)sp,
+                .target_turn = -(float)tr,
+                .turn_gain = turn_g,
+                .speed_pid_kp = kp,
+                .speed_pid_ki = ki,
+                .speed_pid_kd = kd,
+            };
+            car_control_update_params(&params);
+        }
         else
         {
             ESP_LOGW(TAG, "Packet parse failed");
@@ -154,7 +156,8 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
     switch (event)
     {
     case ESP_GATTS_REG_EVT:
-        ESP_LOGI(TAG, "GATT registered");
+        s_gatts_if = gatts_if;
+        ESP_LOGI(TAG, "GATT registered, if=%d", s_gatts_if);
         esp_gatt_srvc_id_t service_id = {
             .is_primary = true,
             .id = {.inst_id = 0, .uuid = {.len = ESP_UUID_LEN_16, .uuid = {.uuid16 = GATTS_SERVICE_UUID}}}};
@@ -165,17 +168,34 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
         ESP_LOGI(TAG, "Service created, handle=%d", param->create.service_handle);
         gatts_service_handle = param->create.service_handle;
         esp_bt_uuid_t char_uuid = {.len = ESP_UUID_LEN_16, .uuid = {.uuid16 = GATTS_CHAR_CONTROL_UUID}};
-        esp_ble_gatts_add_char(gatts_service_handle, &char_uuid,
-                               ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
-                               ESP_GATT_CHAR_PROP_BIT_WRITE | ESP_GATT_CHAR_PROP_BIT_WRITE_NR,
-                               NULL, NULL);
+esp_ble_gatts_add_char(gatts_service_handle, &char_uuid,
+                       ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
+                       ESP_GATT_CHAR_PROP_BIT_WRITE | ESP_GATT_CHAR_PROP_BIT_WRITE_NR | ESP_GATT_CHAR_PROP_BIT_INDICATE,
+                       NULL, NULL);
         break;
 
     case ESP_GATTS_ADD_CHAR_EVT:
         if (param->add_char.char_uuid.uuid.uuid16 == GATTS_CHAR_CONTROL_UUID)
         {
             gatts_control_char_handle = param->add_char.attr_handle;
-            ESP_LOGI(TAG, "Control characteristic added");
+            ESP_LOGI(TAG, "Control characteristic added, handle=%d", gatts_control_char_handle);
+            // 添加客户端配置描述符 (CCC)
+            esp_bt_uuid_t desc_uuid = {
+                .len = ESP_UUID_LEN_16,
+                .uuid = {.uuid16 = ESP_GATT_UUID_CHAR_CLIENT_CONFIG}  // 0x2902
+            };
+            esp_ble_gatts_add_char_descr(gatts_service_handle, &desc_uuid,
+                                         ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
+                                         NULL, NULL);
+        }
+        break;
+
+    case ESP_GATTS_ADD_CHAR_DESCR_EVT:
+        if (param->add_char_descr.descr_uuid.uuid.uuid16 == ESP_GATT_UUID_CHAR_CLIENT_CONFIG)
+        {
+            gatts_control_desc_handle = param->add_char_descr.attr_handle;
+            ESP_LOGI(TAG, "CCC descriptor added, handle=%d", gatts_control_desc_handle);
+            // 所有描述符添加完成后启动服务
             esp_ble_gatts_start_service(gatts_service_handle);
         }
         break;
@@ -201,25 +221,35 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
         gatts_conn_id = param->connect.conn_id;
         break;
 
-    case ESP_GATTS_DISCONNECT_EVT:
-    {
-        ESP_LOGI(TAG, "BLE disconnected");
-        is_connected = false;
-        // 断开时发送零指令并紧急停止
-        car_control_params_t zero = {0};
-        car_control_update_params(&zero);
-        // 重新广播
-        esp_ble_adv_params_t adv_params = {
-            .adv_int_min = 0x20,
-            .adv_int_max = 0x40,
-            .adv_type = ADV_TYPE_IND,
-            .own_addr_type = BLE_ADDR_TYPE_PUBLIC,
-            .channel_map = ADV_CHNL_ALL,
-            .adv_filter_policy = ADV_FILTER_ALLOW_SCAN_ANY_CON_ANY,
-        };
-        esp_ble_gap_start_advertising(&adv_params);
-        break;
-    }
+case ESP_GATTS_DISCONNECT_EVT:
+{
+    ESP_LOGI(TAG, "BLE disconnected");
+    is_connected = false;
+
+    // 发送紧急停止指令
+    car_control_params_t stop_cmd = {
+        .stop = 1,          // 强制停止
+        .target_speed = 0,
+        .target_turn = 0,
+        .turn_gain = 0,     // 这些参数在停止时不会影响，但可置零
+        .speed_pid_kp = 0,
+        .speed_pid_ki = 0,
+        .speed_pid_kd = 0,
+    };
+    car_control_update_params(&stop_cmd);
+
+    // 重新广播
+    esp_ble_adv_params_t adv_params = {
+        .adv_int_min = 0x20,
+        .adv_int_max = 0x40,
+        .adv_type = ADV_TYPE_IND,
+        .own_addr_type = BLE_ADDR_TYPE_PUBLIC,
+        .channel_map = ADV_CHNL_ALL,
+        .adv_filter_policy = ADV_FILTER_ALLOW_SCAN_ANY_CON_ANY,
+    };
+    esp_ble_gap_start_advertising(&adv_params);
+    break;
+}
     case ESP_GATTS_WRITE_EVT:
         if (param->write.handle == gatts_control_char_handle)
             handle_control_write(param);
@@ -256,4 +286,35 @@ void ble_control_init(void)
     esp_ble_gap_config_adv_data(&adv_data);
     esp_ble_gatts_app_register(0);
     ESP_LOGI(TAG, "BLE control module initialized");
+}
+
+// ========== 发送数据函数 ==========
+esp_err_t ble_control_send_data(const uint8_t *data, size_t len)
+{
+    if (!is_connected) {
+        ESP_LOGW(TAG, "Not connected");
+        return ESP_FAIL;
+    }
+    if (gatts_control_char_handle == 0) {
+        ESP_LOGW(TAG, "Character handle invalid");
+        return ESP_FAIL;
+    }
+    if (data == NULL || len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t ret = esp_ble_gatts_send_indicate(s_gatts_if,
+                                                gatts_conn_id,
+                                                gatts_control_char_handle,
+                                                len,
+                                                (uint8_t *)data,
+                                                false);   // 不需要额外确认回调
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Send indicate failed: %s", esp_err_to_name(ret));
+    }
+    return ret;
+}
+bool ble_control_is_connected(void)
+{
+    return is_connected;
 }

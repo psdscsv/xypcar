@@ -5,7 +5,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <math.h>
-
+#include "led_manager.h" // 引入 LED 管理头文件
 static const char *TAG = "MPU6050";
 
 // I2C 引脚配置
@@ -233,6 +233,7 @@ void mpu6050_init(void)
     if (!mpu6050_check())
     {
         ESP_LOGE(TAG, "MPU6050 init failed!");
+        led_blink(&board_led_handle, 255, 0, 0, 200, 200, 5); // 红色闪烁表示错误
         return;
     }
     mpu6050_config();

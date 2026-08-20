@@ -1,4 +1,5 @@
-idf_component_register(SRCS "attitude_control.c"
+idf_component_register(SRCS "led_manager.c"
+                            "attitude_control.c"
                             "ble_control.c"
                             "car_control.c"
                             "encoder.c"
@@ -18,5 +19,5 @@ idf_component_register(SRCS "attitude_control.c"
                         esp_event
                         esp_http_server
                         driver
-                        
+                        led_strip
                         )
