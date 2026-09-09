@@ -6,9 +6,9 @@
 #include "encoder.h"
 #include "attitude_control.h"
 #include "car_control.h"
-#include "wifi_manager.h"      // 新增，用于 WiFi 配网
-#include "web_control.h"       // 新增
-#include "ble_control.h"     // 若不需要 BLE 可注释
+#include "wifi_manager.h"      
+#include "web_control.h"       
+#include "ble_control.h"     
 #include "led_manager.h"
 static const char *TAG = "MAIN";
 
