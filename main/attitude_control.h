@@ -32,17 +32,18 @@ extern "C" {
                                        float current_left_speed, float current_right_speed,
                                        float *left_out, float *right_out);
 
-    // 动态参数设置（用于 BLE/Web 调参）
-    void attitude_set_roll_kp(float kp);
-    void attitude_set_pitch_kp(float kp);
-    void attitude_set_roll_kd(float kd);
-    void attitude_set_pitch_kd(float kd);
-    void attitude_set_speed_pid(float flag,float kp, float ki, float kd);    // 线速度外环 PID
-    void attitude_set_yaw_rate_pid(float kp, float ki, float kd); // 偏航角速度外环 PID
+    /**
+     * @brief 通用 PID 参数设置
+     * @param flag  1=速度外环, 2=俯仰内环, 3=偏航角速度外环
+     */
+    void attitude_set_pid(float flag, float kp, float ki, float kd);
+
     void attitude_set_max_pitch(float max_pitch_deg);             // 设置最大期望俯仰角（度）
     void attitude_clean_pid(void);
-void attitude_set_zero_offset(float roll_off, float pitch_off);
-void calibrate_zero_offset(void);
+
+    void attitude_set_zero_offset(float roll_off, float pitch_off);
+    void calibrate_zero_offset(void);
+
 #ifdef __cplusplus
 }
 #endif
