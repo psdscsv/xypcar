@@ -12,10 +12,7 @@ static const char *TAG = "Encoder";
 #define ENC_RIGHT_A_GPIO 10
 #define ENC_RIGHT_B_GPIO 11
 
-// 编码器原始PPR（每转脉冲数，未经倍频）
-#define PPR_RAW 110
-// 轮子半径（米）
-#define WHEEL_RADIUS 0.033f
+
 #define TWO_PI 6.283185307f
 
 // 全局脉冲计数（中断中修改，使用临界区保护）
@@ -163,6 +160,6 @@ void encoder_get_speed(float *left_speed_ms, float *right_speed_ms)
     s_last_right_pulse = right_pulse;
     s_last_time_ms = now_ms;
 
-    ESP_LOGD(TAG, "left_pulse=%d, right_pulse=%d,",
-             left_pulse, right_pulse);
+    ESP_LOGW(TAG, "left_speed_ms=%f, right_speed_ms=%f,",
+             *left_speed_ms, *right_speed_ms);
 }

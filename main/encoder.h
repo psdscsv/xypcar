@@ -5,6 +5,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+// 编码器原始PPR（每转脉冲数，未经倍频）
+#define PPR_RAW 69
+// 轮子半径（米）
+#define WHEEL_RADIUS 0.1f
+
 #ifdef __cplusplus
 extern "C"
 {
