@@ -9,7 +9,7 @@
 #define PPR_RAW 69
 // 轮子半径（米）
 #define WHEEL_RADIUS 0.1f
-
+#define MAX_SPEED 10.0f  // 最大线速度（米/秒）
 #ifdef __cplusplus
 extern "C"
 {

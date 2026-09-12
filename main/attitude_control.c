@@ -5,24 +5,30 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <math.h>
+#include "encoder.h"
 #include "led_manager.h"
 
 static const char *TAG = "AttCtrl";
 
 #define FILTER_ALPHA 0.96f
-#define MAX_ROLL     30.0f   // 滚转角限幅（仅用于监控）
-#define MAX_PITCH    30.0f   // 俯仰角限幅（仅用于监控）
 
 // 姿态内环 PD 默认参数
-#define PITCH_P_DEFAULT 2.0f
-#define PITCH_D_DEFAULT 0.1f
+#define PITCH_P_DEFAULT 1.0f
+#define PITCH_D_DEFAULT 0.05f
 
 // 线速度外环 PI 默认参数
 #define SPEED_KP_DEFAULT 40.0f
 #define SPEED_KI_DEFAULT 8.0f
 
 // 偏航角速度外环 P 默认参数
-#define YAW_RATE_KP_DEFAULT 0.5f
+#define YAW_RATE_KP_DEFAULT 0.25f
+
+
+/* 速度积分清零阈值（m/s）：目标速度小于 2% 满量程时清积分 */
+#define SPEED_ZERO_THRESHOLD 0.02f
+
+/* 时间保护最大间隔 */
+#define MAX_DT 0.05f
 
 // 最大期望俯仰角（度）
 static float max_pitch_cmd = 45.0f;
@@ -132,12 +138,6 @@ static void attitude_update(void) {
 
     // 俯仰角速度直接使用陀螺仪 Y 轴（零偏已在 MPU6050 校准中处理）
     pitch_rate = gy;
-
-    // 限幅
-    if (roll_angle > MAX_ROLL)  roll_angle = MAX_ROLL;
-    if (roll_angle < -MAX_ROLL) roll_angle = -MAX_ROLL;
-    if (pitch_angle > MAX_PITCH) pitch_angle = MAX_PITCH;
-    if (pitch_angle < -MAX_PITCH) pitch_angle = -MAX_PITCH;
 }
 
 void calibrate_zero_offset(void) {
@@ -191,30 +191,34 @@ void attitude_get_yaw_rate(float *yaw_rate) {
 }
 
 // 核心级联控制函数
-void attitude_stabilize_with_speed(float target_linear_speed, float target_angular_rate,
-                                   float current_left_speed, float current_right_speed,
+void attitude_stabilize_with_speed(float target_linear_speed,   /* m/s */
+                                   float target_angular_rate,   /* °/s */
+                                   float current_left_speed,    /* m/s */
+                                   float current_right_speed,   /* m/s */
                                    float *left_out, float *right_out) {
-    // 1. 更新姿态（互补滤波）
+    /* 1. 更新姿态 */
     attitude_update();
-    float offset_roll = roll_angle - roll_offset;
+    float offset_roll  = roll_angle  - roll_offset;
     float offset_pitch = pitch_angle - pitch_offset;
 
+    /* 2. 当前线速度：直接取左右轮 m/s 平均值，不再归一化 */
     float current_linear = (current_left_speed + current_right_speed) * 0.5f;
 
-    // 时间计算（使用静态变量记录上次调用时间）
+    /* 3. 时间步长 */
     static uint32_t last_control_ms = 0;
     uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
     float dt = (now_ms - last_control_ms) / 1000.0f;
-    if (dt <= 0.0f || dt > 0.05f) dt = 0.02f;
+    if (dt <= 0.0f || dt > MAX_DT) dt = 0.02f;
     last_control_ms = now_ms;
 
-    // ========== 2. 速度外环（PI）→ 期望俯仰角 ==========
-    // 目标为 0 时，pid_update 内部会自动清积分
-    bool reset_speed_integral = (fabsf(target_linear_speed) < 0.05f);
+    /* ========== 4. 速度外环（PI）→ 期望俯仰角 ==========
+     * setpoint / measurement 单位都是 m/s，误差也是 m/s
+     * 输出是 kp·e + ki·∫e  → 单位：度 */
+    bool reset_speed_integral = (fabsf(target_linear_speed) < SPEED_ZERO_THRESHOLD);
     float pitch_raw = pid_update(&pid_speed, target_linear_speed, current_linear,
                                  dt, reset_speed_integral);
 
-    // 期望俯仰角限幅 + 反算抗积分饱和
+    /* 期望俯仰角限幅 + 反算抗积分饱和 */
     float pitch_setpoint = pitch_raw;
     if (pitch_setpoint > max_pitch_cmd) {
         pitch_setpoint = max_pitch_cmd;
@@ -228,12 +232,11 @@ void attitude_stabilize_with_speed(float target_linear_speed, float target_angul
         }
     }
 
-    // ========== 3. 转向外环（P）→ 期望差速 ==========
-    bool reset_yaw_integral = (fabsf(target_angular_rate) < 1.0f);
+    /* ========== 5. 转向外环（P）→ 期望差速（%/°/s 语义） ========== */
+    bool reset_yaw_integral = (fabsf(target_angular_rate) < 1.0f); /* °/s */
     float diff_raw = pid_update(&pid_yaw_rate, target_angular_rate, current_yaw_rate,
                                 dt, reset_yaw_integral);
 
-    // 差速限幅 + 反算抗积分饱和
     float diff_setpoint = diff_raw;
     if (diff_setpoint > 100.0f) {
         diff_setpoint = 100.0f;
@@ -247,35 +250,30 @@ void attitude_stabilize_with_speed(float target_linear_speed, float target_angul
         }
     }
 
-    // ========== 4. 姿态内环（PD）→ 同向力矩 ==========
-    // 俯仰角误差，微分项用 -kd * pitch_rate 实现阻尼
-    float pitch_error = pitch_setpoint - offset_pitch;   // 0 偏补偿
-    float pitch_corr = pid_pitch.kp * pitch_error - pid_pitch.kd * pitch_rate;
+    /* ========== 6. 姿态内环（PD）→ 同向力矩 ========== */
+    float pitch_error = pitch_setpoint - offset_pitch;
+    float pitch_corr  = pid_pitch.kp * pitch_error - pid_pitch.kd * pitch_rate;
 
-    // 限幅
     const float MAX_PITCH_OUT = 100.0f;
-    if (pitch_corr > MAX_PITCH_OUT) pitch_corr = MAX_PITCH_OUT;
+    if (pitch_corr >  MAX_PITCH_OUT) pitch_corr =  MAX_PITCH_OUT;
     if (pitch_corr < -MAX_PITCH_OUT) pitch_corr = -MAX_PITCH_OUT;
 
-    // ========== 5. 混控 ==========
+    /* ========== 7. 混控 ========== */
     float left  = pitch_corr - diff_setpoint;
     float right = pitch_corr + diff_setpoint;
 
-    // 安全保护：实际俯仰角过大时降低输出
+    /* 安全保护 */
     if (fabsf(offset_pitch) > 40.0f) {
-        // left  *= 0.5f;
-        // right *= 0.5f;
+        /* 可选：降低输出 */
     }
-    // 滚转角过大时紧急停止
     if (fabsf(offset_roll) > 40.0f) {
-        left = 0.0f;
+        left  = 0.0f;
         right = 0.0f;
     }
 
     *left_out  = fmaxf(-100.0f, fminf(100.0f, left));
     *right_out = fmaxf(-100.0f, fminf(100.0f, right));
 }
-
 // ========== 参数设置接口 ==========
 void attitude_set_pid(float flag, float kp, float ki, float kd) {
     if (flag == 1) {
