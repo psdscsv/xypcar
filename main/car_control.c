@@ -13,20 +13,14 @@
 
 static const char *TAG = "CarCtrl";
 
-/* 默认速度环 PI：输入 m/s 误差，输出俯仰角（度）
- * 直观标定：0.5 m/s 误差 → 约 30° 俯仰角 ⇒ kp ≈ 60 */
-#define CAR_SPEED_KP_DEFAULT  60.0f
-#define CAR_SPEED_KI_DEFAULT  10.0f
-#define CAR_SPEED_KD_DEFAULT   0.0f
-
 static car_control_params_t s_params = {
     .stop           = 1,
     .target_speed   = 0.0f,          /* m/s */
     .target_turn    = 0.0f,          /* °/s */
-    .turn_gain      = 1.0f,
-    .speed_pid_kp   = CAR_SPEED_KP_DEFAULT,
-    .speed_pid_ki   = CAR_SPEED_KI_DEFAULT,
-    .speed_pid_kd   = CAR_SPEED_KD_DEFAULT,
+    .pid_flag      = 0.0f,
+    .pid_kp   = 0.0f,
+    .pid_ki   = 0.0f,
+    .pid_kd   = 0.0f,
 };
 
 static SemaphoreHandle_t s_params_mutex = NULL;
@@ -84,10 +78,10 @@ void car_control_init(void) {
     }
 
     /* 把默认速度环 PI 同步给姿态控制器（flag=1 表示速度环） */
-    attitude_set_pid(1,
-                     s_params.speed_pid_kp,
-                     s_params.speed_pid_ki,
-                     s_params.speed_pid_kd);
+    attitude_set_pid(s_params.pid_flag,
+                     s_params.pid_kp,
+                     s_params.pid_ki,
+                     s_params.pid_kd);
     attitude_set_max_pitch(45.0f);
 
     xTaskCreate(control_task, "car_ctrl", 4096, NULL, 5, NULL);
@@ -102,16 +96,16 @@ void car_control_update_params(const car_control_params_t *params) {
     s_params = *params;
     xSemaphoreGive(s_params_mutex);
 
-    /* 更新速度环 PID（flag=1） */
-    attitude_set_pid(1,
-                     params->speed_pid_kp,
-                     params->speed_pid_ki,
-                     params->speed_pid_kd);
+    /* 更新 PID */
+    attitude_set_pid(s_params.pid_flag,
+                     params->pid_kp,
+                     params->pid_ki,
+                     params->pid_kd);
 
     ESP_LOGD(TAG,
-             "Params: v=%.2f m/s, w=%.2f °/s, speed_PID=(%.2f,%.2f,%.2f)",
+             "Params: v=%.2f m/s, w=%.2f °/s, PID=(%.2f,%.2f,%.2f)",
              params->target_speed, params->target_turn,
-             params->speed_pid_kp, params->speed_pid_ki, params->speed_pid_kd);
+             params->pid_kp, params->pid_ki, params->pid_kd);
 }
 
 void car_control_get_params(car_control_params_t *params) {

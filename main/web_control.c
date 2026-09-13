@@ -56,10 +56,10 @@ static esp_err_t joystick_api_handler(httpd_req_t *req) {
         .stop          = 0,    // 只要有输入就不停止
         .target_speed  = target_speed,
         .target_turn   = target_turn,
-        .turn_gain     = 0.0f,
-        .speed_pid_kp  = 0.0f,
-        .speed_pid_ki  = 0.0f,
-        .speed_pid_kd  = 0.0f,
+        .pid_flag     = 0.0f,
+        .pid_kp  = 0.0f,
+        .pid_ki  = 0.0f,
+        .pid_kd  = 0.0f,
     };
 
     // 更新到小车控制模块

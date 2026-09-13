@@ -38,6 +38,7 @@ void app_main(void) {
     ESP_LOGI(TAG, "System ready.");
 
     while (1) {
+        
         if(ble_control_is_connected())led_rainbow(&board_led_handle, 1000);
         else led_blink(&board_led_handle, 0, 10, 0, 500, 500, 1); // 绿色闪烁表示未连接
     }

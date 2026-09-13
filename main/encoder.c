@@ -160,6 +160,6 @@ void encoder_get_speed(float *left_speed_ms, float *right_speed_ms)
     s_last_right_pulse = right_pulse;
     s_last_time_ms = now_ms;
 
-    ESP_LOGW(TAG, "left_speed_ms=%f, right_speed_ms=%f,",
+    ESP_LOGD(TAG, "left_speed_ms=%f, right_speed_ms=%f,",
              *left_speed_ms, *right_speed_ms);
 }

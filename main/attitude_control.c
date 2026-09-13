@@ -13,12 +13,12 @@ static const char *TAG = "AttCtrl";
 #define FILTER_ALPHA 0.96f
 
 // 姿态内环 PD 默认参数
-#define PITCH_P_DEFAULT 1.0f
-#define PITCH_D_DEFAULT 0.05f
+#define PITCH_P_DEFAULT 2.2f
+#define PITCH_D_DEFAULT 0.1f
 
 // 线速度外环 PI 默认参数
-#define SPEED_KP_DEFAULT 40.0f
-#define SPEED_KI_DEFAULT 8.0f
+#define SPEED_KP_DEFAULT 14.0f
+#define SPEED_KI_DEFAULT 6.0f
 
 // 偏航角速度外环 P 默认参数
 #define YAW_RATE_KP_DEFAULT 0.25f
@@ -30,6 +30,7 @@ static const char *TAG = "AttCtrl";
 /* 时间保护最大间隔 */
 #define MAX_DT 0.05f
 
+#define MAX_INTEGRAL 100.0f
 // 最大期望俯仰角（度）
 static float max_pitch_cmd = 45.0f;
 
@@ -92,8 +93,8 @@ static float pid_update(PID_t *pid, float setpoint, float measurement, float dt,
     pid->integral += error * dt;
 
     // 积分限幅（保守值，防止饱和）
-    if (pid->integral > 100.0f) pid->integral = 100.0f;
-    if (pid->integral < -100.0f) pid->integral = -100.0f;
+    if (pid->integral > MAX_INTEGRAL) pid->integral = MAX_INTEGRAL;
+    if (pid->integral < -MAX_INTEGRAL) pid->integral = -MAX_INTEGRAL;
 
     float derivative = (error - pid->prev_error) / dt;
     pid->prev_error = error;
@@ -271,8 +272,11 @@ void attitude_stabilize_with_speed(float target_linear_speed,   /* m/s */
         right = 0.0f;
     }
 
-    *left_out  = fmaxf(-100.0f, fminf(100.0f, left));
-    *right_out = fmaxf(-100.0f, fminf(100.0f, right));
+    *left_out  =fmaxf(-100.0f, fminf(100.0f, left));
+    *right_out =fmaxf(-100.0f, fminf(100.0f, right));
+
+    ESP_LOGI(TAG, "speed_integral: %.2f, speed_set: %.2f, Leftspeed: %.2f, RightSpeed: %.2f,pitch_setpoint:%.2f,pitch_angle:%.2f",
+             pid_speed.integral, target_linear_speed, current_left_speed, current_right_speed, pitch_setpoint, offset_pitch);
 }
 // ========== 参数设置接口 ==========
 void attitude_set_pid(float flag, float kp, float ki, float kd) {

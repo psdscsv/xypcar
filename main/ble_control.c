@@ -42,7 +42,7 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
 // ========== 数据包解析（直接提取原始值） ==========
 static bool parse_control_packet(const uint8_t *data, size_t len,
                                  int16_t *speed, int16_t *turn, int16_t *stop,
-                                 float *turn_gain,
+                                 float *pid_flag,
                                  float *speed_kp, float *speed_ki, float *speed_kd)
 {
     if (len != PKG_TOTAL_LEN) return false;
@@ -53,7 +53,7 @@ static bool parse_control_packet(const uint8_t *data, size_t len,
     *turn  = (int16_t)(data[3] | (data[4] << 8));
     *stop  = (int16_t)(data[5] | (data[6] << 8));
 
-    memcpy(turn_gain, &data[7], 4);
+    memcpy(pid_flag, &data[7], 4);
     memcpy(speed_kp,  &data[11], 4);
     memcpy(speed_ki,  &data[15], 4);
     memcpy(speed_kd,  &data[19], 4);
@@ -111,18 +111,18 @@ static void handle_control_write(esp_ble_gatts_cb_param_t *param)
         }
 
         int16_t sp, tr, st;
-        float turn_g, kp, ki, kd;
+        float pid_s, kp, ki, kd;
         if (parse_control_packet(rx_buffer, PKG_TOTAL_LEN, &sp, &tr, &st,
-                                 &turn_g, &kp, &ki, &kd))
+                                 &pid_s, &kp, &ki, &kd))
         {
             car_control_params_t params = {
                 .stop = st,
                 .target_speed =(float)sp / 100.0f * CAR_MAX_SPEED_MS,
                 .target_turn = -(float)tr,
-                .turn_gain = turn_g,
-                .speed_pid_kp = kp,
-                .speed_pid_ki = ki,
-                .speed_pid_kd = kd,
+                .pid_flag = pid_s,
+                .pid_kp = kp,
+                .pid_ki = ki,
+                .pid_kd = kd,
             };
             car_control_update_params(&params);
         }
@@ -231,10 +231,10 @@ case ESP_GATTS_DISCONNECT_EVT:
         .stop = 1,          // 强制停止
         .target_speed = 0,
         .target_turn = 0,
-        .turn_gain = 0,     // 这些参数在停止时不会影响，但可置零
-        .speed_pid_kp = 0,
-        .speed_pid_ki = 0,
-        .speed_pid_kd = 0,
+        .pid_flag = 0,     // 这些参数在停止时不会影响，但可置零
+        .pid_kp = 0,
+        .pid_ki = 0,
+        .pid_kd = 0,
     };
     car_control_update_params(&stop_cmd);
 
