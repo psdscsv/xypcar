@@ -3,7 +3,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-
+#include "ble_control.h"
 static const char *TAG = "Encoder";
 
 // 引脚定义
@@ -162,4 +162,11 @@ void encoder_get_speed(float *left_speed_ms, float *right_speed_ms)
 
     ESP_LOGD(TAG, "left_speed_ms=%f, right_speed_ms=%f,",
              *left_speed_ms, *right_speed_ms);
+    static int counter = 0;
+    counter++;
+    if(counter % 5 == 0) { // 每5次打印一次
+    char speed_data[32];
+    snprintf(speed_data, sizeof(speed_data), "L:%.2f,R:%.2f", *left_speed_ms, *right_speed_ms);
+    ESP_LOGI(TAG, "Speed: %d", ble_control_send_data((uint8_t*)speed_data, strlen(speed_data)));
+}
 }

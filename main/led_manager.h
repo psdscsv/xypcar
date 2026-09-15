@@ -73,8 +73,9 @@ extern led_handle_t board_led_handle; // 全局变量，用于存储板载LED的
      * @brief 彩虹灯效果
      * @param handle LED句柄
      * @param duration_ms 持续时间(毫秒)
+     * @param brightness 亮度 (0-255)
      */
-    void led_rainbow(led_handle_t *handle, uint32_t duration_ms);
+    void led_rainbow(led_handle_t *handle, uint32_t duration_ms, uint8_t brightness);
 
     /**
      * @brief 闪烁效果
