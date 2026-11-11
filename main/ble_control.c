@@ -121,7 +121,7 @@ static void handle_control_write(esp_ble_gatts_cb_param_t *param)
                                  &pid_s, &kp, &ki, &kd)) {
             car_control_params_t params = {
                 .stop         = st,
-                .target_speed = (float)sp / 100.0f * CAR_MAX_SPEED_MS,
+                .target_speed = (float)sp / 100.0f,
                 .target_turn  = -(float)tr,
                 .pid_flag     = pid_s,
                 .pid_kp       = kp,
@@ -293,17 +293,19 @@ static void gatts_event_handler(esp_gatts_cb_event_t event,
 
     case ESP_GATTS_WRITE_EVT:
         s_last_rx_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        
+    ESP_LOGI(TAG, "WRITE_EVT handle=%d need_rsp=%d len=%d",
+             param->write.handle, param->write.need_rsp, param->write.len);
 
-        // ★★★ 关键修复：Write Request 必须回响应 ★★★
-        if (param->write.need_rsp) {
-            esp_ble_gatts_send_response(
-                gatts_if,
-                param->write.conn_id,
-                param->write.trans_id,
-                ESP_GATT_OK,
-                NULL);
-        }
-
+    if (param->write.need_rsp) {
+        esp_err_t ret = esp_ble_gatts_send_response(
+            gatts_if,
+            param->write.conn_id,
+            param->write.trans_id,
+            ESP_GATT_OK,
+            NULL);
+        ESP_LOGI(TAG, "send_response ret=%s", esp_err_to_name(ret));
+    }
         if (param->write.handle == gatts_control_desc_handle) {
             // 手机写 CCC，判定订阅状态
             if (param->write.len >= 2) {

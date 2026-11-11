@@ -85,8 +85,7 @@ void car_control_init(void) {
     attitude_set_max_pitch(45.0f);
 
     xTaskCreate(control_task, "car_ctrl", 4096, NULL, 5, NULL);
-    ESP_LOGI(TAG, "Car control initialized. Speed unit: m/s, max=%.2f m/s",
-             CAR_MAX_SPEED_MS);
+    ESP_LOGI(TAG, "Car control initialized. Speed unit: m/s");
 }
 
 void car_control_update_params(const car_control_params_t *params) {
