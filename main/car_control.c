@@ -14,24 +14,24 @@
 static const char *TAG = "CarCtrl";
 
 static car_control_params_t s_params = {
-    .stop = 1,
-    .target_speed = 0,
-    .target_turn = 0,
-    .turn_gain = 0.5f,
-    .speed_pid_kp = 0.01f,     // 调整为适合 PPS 单位的初始值
-    .speed_pid_ki = 0.001f,
-    .speed_pid_kd = 0.0f,
+    .stop           = 1,
+    .target_speed   = 0.0f,          /* m/s */
+    .target_turn    = 0.0f,          /* °/s */
+    .pid_flag      = 0.0f,
+    .pid_kp   = 0.0f,
+    .pid_ki   = 0.0f,
+    .pid_kd   = 0.0f,
 };
 
 static SemaphoreHandle_t s_params_mutex = NULL;
 
-#define CONTROL_PERIOD_MS 20   // 50Hz 控制周期
+#define CONTROL_PERIOD_MS 20   /* 50Hz */
 
 static void control_task(void *pvParameters) {
     car_control_params_t params;
-    float left_spd, right_spd;                 // 单位：米/秒
-    float target_linear_spd;                  // 目标线速度，单位：米/秒
-    float target_angular_rate_dps;            // 单位：°/s
+    float left_spd, right_spd;              /* m/s */
+    float target_linear_spd;                /* m/s */
+    float target_angular_rate_dps;          /* °/s */
     float left_out, right_out;
 
     TickType_t last_wake = xTaskGetTickCount();
@@ -42,27 +42,29 @@ static void control_task(void *pvParameters) {
         if (params.stop) {
             motor_set_speed(0, 0);
             attitude_clean_pid();
-                calibrate_zero_offset();
-
+            calibrate_zero_offset();
             vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(CONTROL_PERIOD_MS));
             continue;
         }
 
-        // 获取当前轮速（米/秒）
+        /* 获取当前轮速（m/s） */
         encoder_get_speed(&left_spd, &right_spd);
 
-        // 目标速度倍率调节
-        target_linear_spd = (params.target_speed/50.0f)*1.0f;
-        target_angular_rate_dps = params.target_turn;   // 仍为 °/s
+        /* 单位已经是 m/s，直接使用 */
+        target_linear_spd       = params.target_speed;
+        target_angular_rate_dps = params.target_turn;
 
-        // 调用级联控制核心
+        /* 级联控制：速度环(PI) + 姿态内环(PD) + 转向环(P) */
         attitude_stabilize_with_speed(target_linear_spd, target_angular_rate_dps,
                                       left_spd, right_spd,
                                       &left_out, &right_out);
 
         motor_set_speed(left_out, right_out);
-        ESP_LOGI(TAG, "Target speed: %.2f m/s, Target turn: %.2f °/s, Left out: %.2f, Right out: %.2f",
-                 target_linear_spd, target_angular_rate_dps, left_out, right_out);
+
+        ESP_LOGD(TAG,
+                 "tgt: v=%.2f m/s, w=%.2f °/s | meas: L=%.2f R=%.2f | out: L=%.2f R=%.2f",
+                 target_linear_spd, target_angular_rate_dps,
+                 left_spd, right_spd, left_out, right_out);
 
         vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(CONTROL_PERIOD_MS));
     }
@@ -75,13 +77,15 @@ void car_control_init(void) {
         return;
     }
 
-    // 将 BLE 传入的 PID 参数同步到姿态控制模块（注意量纲已变，需要重新整定）
-    attitude_set_speed_pid(s_params.turn_gain,s_params.speed_pid_kp, s_params.speed_pid_ki, s_params.speed_pid_kd);
-    attitude_set_yaw_rate_pid(0.5f, 0.0f, 0.0f);
+    /* 把默认速度环 PI 同步给姿态控制器（flag=1 表示速度环） */
+    attitude_set_pid(s_params.pid_flag,
+                     s_params.pid_kp,
+                     s_params.pid_ki,
+                     s_params.pid_kd);
     attitude_set_max_pitch(45.0f);
 
     xTaskCreate(control_task, "car_ctrl", 4096, NULL, 5, NULL);
-    ESP_LOGI(TAG, "Car control initialized (speed unit: pulses/sec)");
+    ESP_LOGI(TAG, "Car control initialized. Speed unit: m/s");
 }
 
 void car_control_update_params(const car_control_params_t *params) {
@@ -91,11 +95,16 @@ void car_control_update_params(const car_control_params_t *params) {
     s_params = *params;
     xSemaphoreGive(s_params_mutex);
 
-    attitude_set_speed_pid(params->turn_gain ,params->speed_pid_kp, params->speed_pid_ki, params->speed_pid_kd);
+    /* 更新 PID */
+    attitude_set_pid(s_params.pid_flag,
+                     params->pid_kp,
+                     params->pid_ki,
+                     params->pid_kd);
 
-    ESP_LOGD(TAG, "Params updated: speed=%.1f pps, turn=%.1f, turn_gain=%.2f, PID_KP=%.4f, KI=%.4f, KD=%.2f",
-             params->target_speed, params->target_turn, params->turn_gain,
-             params->speed_pid_kp, params->speed_pid_ki, params->speed_pid_kd);
+    ESP_LOGD(TAG,
+             "Params: v=%.2f m/s, w=%.2f °/s, PID=(%.2f,%.2f,%.2f)",
+             params->target_speed, params->target_turn,
+             params->pid_kp, params->pid_ki, params->pid_kd);
 }
 
 void car_control_get_params(car_control_params_t *params) {

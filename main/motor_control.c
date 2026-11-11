@@ -25,6 +25,22 @@ static const char *TAG = "MOTOR";
 #define CH_M2_FWD LEDC_CHANNEL_2
 #define CH_M2_REV LEDC_CHANNEL_3
 
+static float apply_deadzone_compensation(float percent)
+{
+    if (percent == 0.0f) return 0.0f;
+
+    float sign = (percent > 0.0f) ? 1.0f : -1.0f;
+    float mag  = fabsf(percent);
+
+    /* 极小命令直接归零，否则会从 0 突然跳到 deadzone */
+    if (mag < MOTOR_MIN_COMMAND) return 0.0f;
+
+    float comp = MOTOR_DEADZONE_PERCENT
+               + mag * (100.0f - MOTOR_DEADZONE_PERCENT) / 100.0f;
+
+    if (comp > 100.0f) comp = 100.0f;
+    return sign * comp;
+}
 /**
  * @brief 内部函数：将百分比转换为占空比值（0-255）
  */
@@ -104,7 +120,9 @@ void motor_init(void)
 
 void motor_set_speed(float left_percent, float right_percent)
 {
-
+    /* 死区补偿：先补偿，再做限幅和 PWM 输出 */
+    left_percent  = apply_deadzone_compensation(left_percent);
+    right_percent = apply_deadzone_compensation(right_percent);
     // 限制范围
     if (left_percent > 100.0f)
         left_percent = 100.0f;
@@ -114,7 +132,8 @@ void motor_set_speed(float left_percent, float right_percent)
         right_percent = 100.0f;
     if (right_percent < -100.0f)
         right_percent = -100.0f;
-
+        
+    right_percent=-right_percent; // 右电机方向反向
     int left_duty = percent_to_duty(fabsf(left_percent));
     int right_duty = percent_to_duty(fabsf(right_percent));
 

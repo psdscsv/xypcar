@@ -15,5 +15,6 @@
     "--query-driver=**",
     "--compile-commands-dir=c:\\Users\\tanru\\projects\\vscode\\xypcar\\build"
   ],
-  "idf.flashType": "UART"
+  "idf.flashType": "UART",
+  "idf.port": "COM4"
 }

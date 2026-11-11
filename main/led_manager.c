@@ -130,7 +130,7 @@ void led_breathing(led_handle_t *handle, uint8_t red, uint8_t green, uint8_t blu
 }
 
 // 彩虹灯效果
-void led_rainbow(led_handle_t *handle, uint32_t duration_ms)
+void led_rainbow(led_handle_t *handle, uint32_t duration_ms, uint8_t brightness)
 {
     if (!handle)
         return;
@@ -186,7 +186,7 @@ void led_rainbow(led_handle_t *handle, uint32_t duration_ms)
             break;
         }
 
-        led_set_all(handle, r * 255, g * 255, b * 255);
+        led_set_all(handle, r * brightness, g * brightness, b * brightness);
         vTaskDelay(20 / portTICK_PERIOD_MS);
     }
 }

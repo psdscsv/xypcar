@@ -6,9 +6,9 @@
 #include "encoder.h"
 #include "attitude_control.h"
 #include "car_control.h"
-#include "wifi_manager.h"      // 新增，用于 WiFi 配网
-#include "web_control.h"       // 新增
-#include "ble_control.h"     // 若不需要 BLE 可注释
+#include "wifi_manager.h"      
+#include "web_control.h"       
+#include "ble_control.h"     
 #include "led_manager.h"
 static const char *TAG = "MAIN";
 
@@ -38,7 +38,8 @@ void app_main(void) {
     ESP_LOGI(TAG, "System ready.");
 
     while (1) {
-        if(ble_control_is_connected())led_rainbow(&board_led_handle, 1000);
-        else led_blink(&board_led_handle, 0, 10, 0, 500, 500, 1); // 红色闪烁表示未连接
+        
+        if(ble_control_is_connected())led_rainbow(&board_led_handle, 1000, 20);
+        else led_blink(&board_led_handle, 0, 10, 0, 500, 500, 1); // 绿色闪烁表示未连接
     }
 }

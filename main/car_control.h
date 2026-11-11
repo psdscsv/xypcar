@@ -8,15 +8,23 @@
 extern "C" {
 #endif
 
-typedef struct {
-    int stop;               // 1: 停止
-    float target_speed;     // 目标线速度，单位 0.01 m/s (100 = 1.00 m/s)
-    float target_turn;      // 转向值 -100 ~ 100
+/* ------------------------------------------------------------------
+ * 统一速度单位：m/s
+ * 上层协议（BLE/Web）仍然发送 ±100 的归一化值，
+ * 由各自的转换点负责换算为 m/s：
+ *     速度(m/s) = 上层值 / 100.0f * CAR_MAX_SPEED_MS
+ * ------------------------------------------------------------------ */
 
-    float turn_gain;        // 转向增益
-    float speed_pid_kp;
-    float speed_pid_ki;
-    float speed_pid_kd;
+typedef struct {
+    int   stop;             /* 1: 停止 */
+    float target_speed;     /* 目标线速度 (m/s)，范围 ±CAR_MAX_SPEED_MS */
+    float target_turn;      /* 目标偏航角速度 (°/s) */
+
+    float pid_kp;
+    float pid_ki;
+    float pid_kd;
+
+    float pid_flag;        
 } car_control_params_t;
 
 void car_control_init(void);

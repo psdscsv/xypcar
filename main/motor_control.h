@@ -3,7 +3,8 @@
 #define MOTOR_CONTROL_H
 
 #include <stdbool.h>
-
+#define MOTOR_DEADZONE_PERCENT   30.0f
+#define MOTOR_MIN_COMMAND        0.5f
 /**
  * @brief 初始化电机驱动
  *        - 配置 PWM 通道
